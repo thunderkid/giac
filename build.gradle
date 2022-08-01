@@ -1018,7 +1018,8 @@ task emccGiacJsWasm(dependsOn: 'emccCompileWasm') {
             linkerArgs << '-DGIAC_GGB'
             linkerArgs << '-o' << output
             // linkerArgs << "-s" << "DISABLE_EXCEPTION_CATCHING=0"
-            linkerArgs << '-Oz' << '-v' << '-s' << "EXPORTED_FUNCTIONS=['_caseval']"
+            //linkerArgs << '-Oz' << '-v' << '-s' << "EXPORTED_FUNCTIONS=['_caseval']"
+            linkerArgs << '-O1' << '-v' << '-s' << "EXPORTED_FUNCTIONS=['_caseval']"
             linkerArgs << '-s' << 'EXTRA_EXPORTED_RUNTIME_METHODS=["cwrap"]'
 
             linkerArgs << '--memory-init-file' << '0'
@@ -1051,6 +1052,71 @@ task createGiacWasmJs(dependsOn: 'createGiacGgbJsWasm') {
                 .replace('giacggb.wasm', "data:application/octet-stream;base64,${wasmBase64}")
     }
 }
+
+// creating wasm for use in node
+task emccGiacJsWasmForNode(dependsOn: 'emccCompileWasm') {
+    description 'Links giac.js.'
+    mustRunAfter 'emccCompileWasm'
+    def output = binaryJsDir + "/giacggb.js"
+    outputs.file output
+    doLast {
+        def list = []
+        def linkerArgs = []
+        def inputInclude = []
+        FileTree files = fileTree(dir: objDir)
+        files.visit { f ->
+            def emccCompileTask = 'emccCompile_' + f.name - '.o' + 'Cc'
+            inputInclude << f.name
+            inputInclude << ('src/giac/cpp/' + f.name - '.o' + '.cc')
+            list << emccCompileTask
+            linkerArgs << objDir + "/${f.name}"
+        }
+
+        file(binaryJsDir).mkdirs()
+        exec {
+            linkerArgs << LlvmMpfrA // mpfr must precede gmp, see http://www.mpfr.org/faq.html, Q5
+            linkerArgs << LlvmGmpA
+            linkerArgs << '--js-library' << 'src/giac.js/js/time.js'
+
+            linkerArgs << '-DGIAC_GGB'
+            linkerArgs << '-o' << output
+            // linkerArgs << "-s" << "DISABLE_EXCEPTION_CATCHING=0"
+            //linkerArgs << '-Oz' << '-v' << '-s' << "EXPORTED_FUNCTIONS=['_caseval']"
+            linkerArgs << '-O1' << '-v' << '-s' << "EXPORTED_FUNCTIONS=['_caseval']"
+            linkerArgs << '-s' << 'EXTRA_EXPORTED_RUNTIME_METHODS=["cwrap"]'
+            linkerArgs << '-s' << 'MODULARIZE'
+            // try also sENVIRONMENT=node
+            linkerArgs << '--memory-init-file' << '0'
+            linkerArgs << '-s' << 'TOTAL_MEMORY=67108864' // consider increasing this if running out of memory on GB computations
+            def linkerArgsString = linkerArgs.join(" ")
+            println "Linking: ${emccCommand} ${linkerArgsString}"
+            commandLine emccCommand
+            args linkerArgs
+        }
+    }
+}
+
+task createGiacGgbJsWasmForNode(dependsOn: 'emccGiacJsWasmForNode', type: Copy) {
+    description 'Creates the giacggb.wasm folder to store embeddable giac.js.'
+    from 'src/giac.js'
+    into binaryJsDir
+    include ('nodetoy.js')
+}
+
+task createGiacWasmJsForNode(dependsOn: 'createGiacGgbJsWasmForNode') {
+    description 'Creates WebAssembly version of Giac which can be run from node.'
+    doLast {
+        // hack since not detecting isFileURI unless starts with 'file://', in which case not importing into js.
+        // surely some better way to do this.
+        file("${binaryJsDir}/giac.node.wasm.js").text = file("${binaryJsDir}/giacggb.js").text
+                .replace('isFileURI(filename) {', 'isFileURI(filename) { return true;')
+                .replace('isFileURI(filename){', 'isFileURI(filename){return true;')
+    }
+}
+
+
+
+
 
 // Using emsdk
 

@@ -1,5 +1,5 @@
 //var factory = require('file://./giacggb.js');
-var factory = require('./giac.node.wasm.js')
+var factory = require('./giac.node.wasm-loader.js')
 //var factory = require('./giac.wasm2.js');
 
 factory().then((instance) => {

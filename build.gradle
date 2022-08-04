@@ -1048,7 +1048,7 @@ task createGiacWasmJs(dependsOn: 'createGiacGgbJsWasm') {
         }
         def wasmBase64 = file("${binaryJsDir}/giacggb.wasm.b64").text;
         file("${binaryJsDir}/giac.wasm.js").text = file("${binaryJsDir}/giacggb.js").text
-                .replace('Module', '__ggb__giac').replace('"use asm";', '')
+                /*.replace('Module', '__ggb__giac')*/.replace('"use asm";', '')
                 .replace('giacggb.wasm', "data:application/octet-stream;base64,${wasmBase64}")
     }
 }
@@ -1082,6 +1082,7 @@ task emccGiacJsWasmForNode(dependsOn: 'emccCompileWasm') {
             linkerArgs << '-o' << output
             // note using the -Oz flag in the following line somehow strips exported functions.
             // -O3 claims to be faster anyhow. Can use -O1 or -O2 for less optimization.
+            //linkerArgs << '-O3' << '-v' << '-s' << "EXPORTED_FUNCTIONS=['_caseval']"
             linkerArgs << '-O3' << '-v' << '-s' << "EXPORTED_FUNCTIONS=['_caseval']"
             linkerArgs << '-s' << 'EXTRA_EXPORTED_RUNTIME_METHODS=["cwrap"]'
             linkerArgs << '-s' << 'MODULARIZE'
@@ -1113,9 +1114,17 @@ task createGiacWasmJsForNode(dependsOn: 'createGiacGgbJsWasmForNode') {
         file("${binaryJsDir}/giac.node.wasm-loader.js").text = file("${binaryJsDir}/giacggb.js").text
                 .replace('isFileURI(filename) {', 'isFileURI(filename) { return true;')
                 .replace('isFileURI(filename){', 'isFileURI(filename){return true;')
+        exec {
+            commandLine "bash", "-c", "base64 -w0 giacggb.wasm > giacggb.wasm.b64"
+            workingDir binaryJsDir
+        }
+        def wasmBase64 = file("${binaryJsDir}/giacggb.wasm.b64").text;
+        file("${binaryJsDir}/giac.node.wasm.js").text = file("${binaryJsDir}/giacggb.js").text
+                /*.replace('Module', '__ggb__giac')*/.replace('"use asm";', '')
+                .replace('giacggb.wasm', "data:application/octet-stream;base64,${wasmBase64}")
+                .replace('getBinary(file) {', "getBinary(file) {return new Uint8Array(Buffer.from(file.slice(dataURIPrefix.length), 'base64'));")
+                .replace('getBinary(file){', "getBinary(file) {return new Uint8Array(Buffer.from(file.slice(dataURIPrefix.length), 'base64'));")
     }
-
-    // todo: haven't got embedded .wasm.js version working in node yet.
 }
 
 

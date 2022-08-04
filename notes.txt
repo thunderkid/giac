@@ -1,0 +1,5 @@
+In giac.wasm.js replace
+  
+  getBinary(file) {
+    const uithing = new Uint8Array(Buffer.from(file.slice(dataURIPrefix.length), 'base64'));
+    return uithing;

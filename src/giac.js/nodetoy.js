@@ -1,6 +1,6 @@
-//var factory = require('file://./giacggb.js');
-var factory = require('./giac.node.wasm-loader.js')
-//var factory = require('./giac.wasm2.js');
+//const factory = require('./giac.node.wasm-loader.js')
+// OR FOR INLINE VERSION:
+const factory = require('./giac.node.wasm.js')
 
 factory().then((instance) => {
   const caseval = instance.cwrap('caseval', 'string', ['string']);

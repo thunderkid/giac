@@ -25,7 +25,9 @@
                 "wallabyjs.quokka-vscode",
                 "vscjava.vscode-java-pack",
                 "ms-python.python",
-                "ms-vscode.cpptools"
+                "ms-vscode.cpptools",
+                "twxs.cmake",
+                "ms-vscode.cmake-tools"
             ]
         }
     },

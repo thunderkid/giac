@@ -1,0 +1,24 @@
+// To compile wasm version of giac for node:
+Open in dev container, then from /workspaces/giac:
+    ./gradlew downloadEmsdk installEmsdk activateEmsdk                     needed first time
+    ./gradlew createGiacWasmJsForNode                                      to actually create .wasm and wrapper files.
+
+Output is in /workspaces/giac/build/binaries/giacggb.wasm/
+From here, run 
+    node nodetoy.js
+
+nodetoy.js can test either the non-inline version (giac.node.wasm-loader.js + giacggb.wasm), or the inline version (just giac.node.wasm.js).
+For use in other node-based systems just these files need to be copied.
+
+
+
+// To debug minigiac, a terminal-based c program:
+On bottom bar of vscode choose
+    kit as GCC 11.2.0 x86_64...
+    build variant to CMake[Debug]
+    build target / debug target to [minigiac] 
+    add breakpoints to, eg, minigiac.cc
+    click bug icon on bottom bar to start debugging
+
+terminal shows giac. breakpoints & debugging work.
+gcc output is in build/ folder. Executable is minigiac.

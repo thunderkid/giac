@@ -54,6 +54,15 @@ project.setDescription('Giac CAS for GeoGebra')
  *
  *    This command line will work only after you already ran downloadEmsdk and installEmsdk
  *    (as described above).
+ *                OR
+ * 3. (NODE ALTERNATIVE)
+ *    To produce files for a node environment rather than browser/electron environment,
+ *    instead of (3), run the createGiacWasmJsForNode task. (After having run ./gradlew downloadEmsdk installEmsdk activateEmsdk)
+ *    This will create giac.node.wasm-loader.js + giacggb.wasm, which can be tested from nodetoy.js.
+ *    It also creates an alternative version giac.node.wasm.js that contains an inline version of the wasm.
+ *    This can also be tested from nodetoy.js by commenting out the appropriate line.
+ *    The task emccGiacJsWasmForNodeMore contains an optimization switch. Use -O3 for release, -O1 for more human friendly dev version.
+ 
  */
 
 // FIXME: Some of these settings are hardcoded at the moment, they need to be more general.

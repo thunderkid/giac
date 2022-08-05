@@ -1,1 +1,1 @@
-FROM thunder-full-dev
+FROM thunderkid/thunder-full-dev:0.3

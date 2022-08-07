@@ -1,0 +1,14 @@
+{
+  "name": "thunder-giac",
+  "version": "1.0.0",
+  "description": "Version of giac compiled to wasm and customized for use in node",
+  "main": "out/index.js",
+  "directories": {
+    "out": "out"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC"
+}

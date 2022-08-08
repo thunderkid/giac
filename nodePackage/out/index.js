@@ -4,9 +4,17 @@ const factory = require('./giac.node.wasm');
 
 let caseval = null;
 
+let initializeStarted = false;
+let initializeCompleted = false;
 export function initialize() {
+    if (initializeCompleted)
+        return Promise.resolve();
+    else if (initializeStarted)
+        throw Error(`Two Giac initializations are running concurrently.`);
+    initializeStarted = true;
     return factory().then((theInstance) => {
-        caseval = theInstance.cwrap('caseval', 'string', ['string'])
+        caseval = theInstance.cwrap('caseval', 'string', ['string']);
+        initializeCompleted = true;
     });
 }
 

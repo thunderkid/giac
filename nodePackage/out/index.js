@@ -4,18 +4,32 @@ const factory = require('./giac.node.wasm');
 
 let caseval = null;
 
-let initializeStarted = false;
-let initializeCompleted = false;
+// let initializeStarted = false;
+// let initializeCompleted = false;
+let initializePromise = null;
 export function initialize() {
-    if (initializeCompleted)
-        return Promise.resolve();
-    else if (initializeStarted)
-        throw Error(`Two Giac initializations are running concurrently.`);
-    initializeStarted = true;
-    return factory().then((theInstance) => {
-        caseval = theInstance.cwrap('caseval', 'string', ['string']);
-        initializeCompleted = true;
-    });
+    // if (initializePromise)
+    //     return initializePromise;
+    // else if (initializeStarted)
+    //     throw Error(`Two Giac initializations are running concurrently.`);
+    // initializeStarted = true;
+    console.log('called initialize  eee');
+    if (!initializePromise) {
+        initializePromise = factory().then((theInstance) => {
+            console.log('running initializer');
+            caseval = theInstance.cwrap('caseval', 'string', ['string']);
+            console.log('ended initializer');
+        });
+    }
+   return initializePromise;
+
+        // return factory().then((theInstance) => {
+        //     console.log('running initializer');
+        //     caseval = theInstance.cwrap('caseval', 'string', ['string']);
+        //     //initializeCompleted = true;
+        //     console.log('ended initializer');
+        // });
+
 }
 
 export function runEval(str) {

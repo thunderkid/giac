@@ -2,39 +2,32 @@
 // by running ./gradlew downloadEmsdk installEmsdk activateEmsdk createGiacWasmJsForNode
 const factory = require('./giac.node.wasm');
 
+// caseval is the actual workhorse function of giac. Once wasm is compiled it's initialized.
 let caseval = null;
 
-// let initializeStarted = false;
-// let initializeCompleted = false;
+// initializePromise ensures that the actual wasm compilation only occurs once
+// even if initialize is called multiple times. 
 let initializePromise = null;
 export function initialize() {
-    // if (initializePromise)
-    //     return initializePromise;
-    // else if (initializeStarted)
-    //     throw Error(`Two Giac initializations are running concurrently.`);
-    // initializeStarted = true;
-    console.log('called initialize  eee');
+    const startTime = performance.now();
     if (!initializePromise) {
         initializePromise = factory().then((theInstance) => {
-            console.log('running initializer');
+            if (caseval)
+                throw Error('Two giac initalizations were somehow run. The initializePromise logic must have broken.')
             caseval = theInstance.cwrap('caseval', 'string', ['string']);
-            console.log('ended initializer');
+            console.log(`Giac WASM initialized in ${Math.round(performance.now()-startTime)}ms`);
         });
     }
    return initializePromise;
-
-        // return factory().then((theInstance) => {
-        //     console.log('running initializer');
-        //     caseval = theInstance.cwrap('caseval', 'string', ['string']);
-        //     //initializeCompleted = true;
-        //     console.log('ended initializer');
-        // });
-
 }
 
 export function runEval(str) {
     if (!caseval)
-        throw Error(`Giac not initialized`);
+        throw Error(`Evaluation attempted before giac was initialized`);
+    // if (!caseval)
+    //     initialize();  
+    // while (!caseval) {}
     return caseval(str);
 }
 
+//initialize();

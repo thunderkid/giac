@@ -3,6 +3,12 @@ Open in dev container, then from /workspaces/giac:
     ./gradlew downloadEmsdk installEmsdk activateEmsdk                     needed first time
     ./gradlew createGiacWasmJsForNode                                      to actually create .wasm and wrapper files.
 
+Troubleshooting: if you get error 
+            /usr/bin/env: 'sh\r': No such file or directory
+    it means gradlew has windows line endings. Install dos2unix and then use dos2unix gradlew.
+        
+
+
 Output is in /workspaces/giac/build/binaries/giacggb.wasm/
 From here, run 
     node nodetoy.js

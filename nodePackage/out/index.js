@@ -8,7 +8,7 @@ let caseval = null;
 // initializePromise ensures that the actual wasm compilation only occurs once
 // even if initialize is called multiple times. 
 let initializePromise = null;
-export function initialize() {
+function initialize() {
     const startTime = performance.now();
     if (!initializePromise) {
         initializePromise = factory().then((theInstance) => {
@@ -21,7 +21,7 @@ export function initialize() {
    return initializePromise;
 }
 
-export function runEval(str) {
+function runEval(str) {
     if (!caseval)
         throw Error(`Evaluation attempted before giac was initialized`);
     // if (!caseval)
@@ -29,5 +29,8 @@ export function runEval(str) {
     // while (!caseval) {}
     return caseval(str);
 }
+
+
+module.exports = { initialize, runEval }
 
 //initialize();

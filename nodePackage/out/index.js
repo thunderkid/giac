@@ -1,6 +1,6 @@
 // Imports giac.node.wasm.js file that's generated in giac/build/binaries/giacggb.wasm/
 // by running ./gradlew downloadEmsdk installEmsdk activateEmsdk createGiacWasmJsForNode
-const factory = require('./giac.node.wasm');
+const factory = require('./compiledWasm/giac.node.wasm');
 
 // caseval is the actual workhorse function of giac. Once wasm is compiled it's initialized.
 let caseval = null;

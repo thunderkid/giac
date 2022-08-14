@@ -5,3 +5,4 @@ build/
 emsdk/
 giac-gwt/bin
 .vscode/*.log
+/nodePackage/out/compiledWasm/giac.node.wasm.js

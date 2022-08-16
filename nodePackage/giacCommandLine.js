@@ -24,6 +24,7 @@ console.log('Enter expressions to evaluate');
 console.log('Example: factor(x^4-1); simplify(sin(3x)/sin(x))');
 console.log('int(1/(x^4-1)); int(1/(x^4+1)^4,x,0,inf)');
 console.log("f(x):=sin(x^2); f'(2); f'(y)");
+console.log('Commands listed at http://www-fourier.ujf-grenoble.fr/~parisse/giac/doc/en/cascmd_en/index.html');
 console.log('Type "exit" to stop');
 
 let n=1;

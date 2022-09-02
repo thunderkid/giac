@@ -7,8 +7,6 @@ Troubleshooting: if you get error
             /usr/bin/env: 'sh\r': No such file or directory
     it means gradlew has windows line endings. Install dos2unix and then use dos2unix gradlew.
         
-
-
 Output is in /workspaces/giac/build/binaries/giacggb.wasm/
 From here, run 
     node nodetoy.js
@@ -16,6 +14,14 @@ From here, run
 nodetoy.js can test either the non-inline version (giac.node.wasm-loader.js + giacggb.wasm), or the inline version (just giac.node.wasm.js).
 For use in other node-based systems just these files need to be copied.
 
+If rebuilding, after changing, eg, alg_ext.cc, need to erase ALL files from build/binaries/giacggb.wasm/
+                then run ./gradlew createGiacWasmJsForNode again.
+
+To make available inside windows npm builds, 
+        from build/binaries/giacggb.wasm/
+        cp giac.node.wasm.js ../../../nodePackage/out/compiledWasm/
+
+Then can test using 'giac' command from windows powershell.
 
 
 // To debug minigiac, a terminal-based c program:

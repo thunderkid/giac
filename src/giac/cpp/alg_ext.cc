@@ -728,10 +728,14 @@ namespace giac {
 	  if (!rootof_trylock()){
 	    if (lvptr){
 	      gen vexpr=r2e(v,vecteur(lvptr->begin()+1,lvptr->end()),contextptr);
-	      symbolic_rootof_list()[vexpr]=gaa+k*gbb;
+	    //   printf("here we are and here we are and here we go");
+	    //   printf("pudding all over the world");
+	    //   printf("all over the world I say");
+	    //   printf("but I don't really know. Truth be told.");
+          symbolic_rootof_list()[vexpr]=k*gaa+gbb; //+123456.78;
 	    }
 	    else
-	      symbolic_rootof_list()[v]=gaa+k*gbb;
+	      symbolic_rootof_list()[v]=k*gaa+gbb;
 	    rootof_unlock();
 	  }
 	}

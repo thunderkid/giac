@@ -1,5 +1,5 @@
 // To compile wasm version of giac for node:
-Open in dev container, then from /workspaces/giac:
+Open in dev container, then from /workspaces/ThunderGiac:
     ./gradlew downloadEmsdk installEmsdk activateEmsdk                     needed first time
     ./gradlew createGiacWasmJsForNode                                      to actually create .wasm and wrapper files.
 
@@ -34,3 +34,26 @@ On bottom bar of vscode choose
 
 terminal shows giac. breakpoints & debugging work.
 gcc output is in build/ folder. Executable is minigiac.
+
+
+
+
+
+
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Merging from upstream
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// did on 10/1/22
+git remote add upstream https://github.com/geogebra/giac.git             (should be unnecessary after doing this once)
+git branch -r                                                            lists remote branches. Should see upstream/master  
+git fetch upstream                                                       fetches metadata for examining in, eg, gitex                           
+git checkout wasm-from-node                                  my local working branch. Want to add upstream changes to this branch.
+git branch wasm-from-node-backup                             just in case
+git pull upstream master                                                 downloads and tries to automerge
+            /// gave merge conflict errors, for alg_ext.cc in this case. 
+git log --merge                                                          shows commits giving merge conflict.
+// open problem file in vscode (alg_ext.cc in this case.) Accept one version of conflict, marked with >>>>>>. Save it.
+git add .\src\giac\cpp\alg_ext.cc                                        adds conflict file to commits
+git commit -m "Merged stuff and resolved annoying conflict"              or do commit in gitex, with message
+

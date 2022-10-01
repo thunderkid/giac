@@ -2907,6 +2907,12 @@ namespace giac {
 	      gen res2=_solve(makesequence(symb_equal(ratnormal(a1/a12,contextptr),ratnormal(a2/a12,contextptr)),v.back()),contextptr);
 	      return gen(mergevecteur(gen2vecteur(res1),gen2vecteur(res2)),res1.subtype);
 	    }
+	    if (w.size()>=3){
+	      gen tst=tsimplify(_lin(a1/a2,contextptr),contextptr);
+	      w=lvarx(tst,v.back());
+	      if (w.size()==1)
+		return _solve(makesequence(tst-1,v.back()),contextptr);
+	    }
 	    gen a1arg,a2arg; 
 	    bool a1log=is_log10(a1,a1arg),a2log=is_log10(a2,a2arg);
 	    if (a1log && a2log){
@@ -3000,6 +3006,14 @@ namespace giac {
   }
   gen _solve(const gen & args,GIAC_CONTEXT){
     if ( args.type==_STRNG && args.subtype==-1) return  args;
+    if (is_equal(args) && args._SYMBptr->feuille[1]==0 && args._SYMBptr->feuille[0].type==_INT_){
+      int v=args._SYMBptr->feuille[0].val;
+      if (v==16 || v==10 || v==8 || v==2){
+	*logptr(contextptr) << "Integer format set to " << v << '\n';
+	integer_format(v,contextptr);
+	return vecteur(0);
+      }
+    }
     gen res=_solve_uncompressed(args,contextptr);
     if (res.type==_VECT){
       vecteur v=*res._VECTptr;
@@ -3854,7 +3868,12 @@ namespace giac {
     if (s==2 && v[1].type==_IDNT){ 
       // no initial guess, check for poly-like equation
       vecteur lv(lvar(v0));
-      lv=lvar(evalf(lv,1,contextptr));
+      if (contextptr && contextptr->quoted_global_vars){
+	contextptr->quoted_global_vars->push_back(lv[1]);
+	lv=lvar(evalf(lv,1,contextptr)); // this should not evalf v[1], otherwise x:=10; solve(x^(3/2)=3.,x); will fail
+	contextptr->quoted_global_vars->pop_back();
+      } else
+	lv=lvar(evalf(lv,1,contextptr)); 
       int lvs=int(lv.size());
       bool poly=true;
       for (unsigned i=0;i<lv.size();++i){
@@ -7090,7 +7109,7 @@ namespace giac {
 	  const_iterateur xt=xsol.begin(),xtend=xsol.end();
 	  for (;xt!=xtend;++xt){
 	    // current[xpos]=*xt;
-	    if (is_inequation(*xt)){ // FIXME is_inequation
+	    if (is_inequation(*xt) || xt->is_symb_of_sommet(at_and) || xt->is_symb_of_sommet(at_ou)){ // FIXME is_inequation
 	      gen id=lidnt(*xt);
 	      if (id.type==_VECT && id._VECTptr->size()==1){
 		id=id._VECTptr->front();
@@ -7761,6 +7780,10 @@ namespace giac {
 	    eqs.erase(eqs.begin()+i);
 	    for (unsigned k=0;k<eqs.size();++k){
 	      eqs[k]=_numer(subst(eqs[k],elim[j],elimj,false,contextptr),contextptr);
+	      if (is_zero(eqs[k])){
+		eqs.erase(eqs.begin()+k);
+		--k;
+	      }
 	    }
 	    elim.erase(elim.begin()+j);
 	    gen res=_eliminate(makesequence(eqs,elim,symb_equal(at_irem,modular),symb_equal(at_eliminate,gbasis_param.eliminate_flag)),contextptr);

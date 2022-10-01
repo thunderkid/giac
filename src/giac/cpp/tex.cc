@@ -975,16 +975,26 @@ namespace giac {
       }
     }
     if (g.type==_VECT ){
-      if (!curve && g.subtype==_GROUP__VECT && !has_i(g) && !g._VECTptr->empty() && g._VECTptr->front().type!=_VECT){ // "compressed" hypersurface
+      if (!curve && g.subtype==_GROUP__VECT && !g._VECTptr->empty() && g._VECTptr->front().type!=_VECT){ // "compressed" hypersurface?
 	vecteur v=*evalf_double(g,1,contextptr)._VECTptr;
 	int s=v.size();
 	if (s%3==0){
-	  for (int i=0;i<s;i+=3){
-	    vx.push_back(v[i]._DOUBLE_val);
-	    vy.push_back(v[i+1]._DOUBLE_val);
-	    vz.push_back(v[i+2]._DOUBLE_val);
+	  int i;
+	  for (i=0;i<s;i+=3){
+	    if (v[i].type!=_DOUBLE_ || v[i+1].type!=_DOUBLE_)
+	      break;
 	  }
-	  return false;
+	  if (i==s){
+	    for (int i=0;i<s;i+=3){
+	      vx.push_back(v[i]._DOUBLE_val);
+	      vy.push_back(v[i+1]._DOUBLE_val);
+	      if (v[i+2].type==_CPLX)
+		vz.push_back(abs(v[i+2],contextptr)._DOUBLE_val);
+	      else 
+		vz.push_back(v[i+2]._DOUBLE_val);
+	    }
+	    return false;
+	  }
 	}
       }
       bool ortho=false;
@@ -1221,10 +1231,15 @@ namespace giac {
       sort(v.begin(),v.end());
       m=v[s/10];
       M=v[9*s/10];
-      if (fullview || 1.75*(M-m)>(v[s-1]-v[0]) || (M-m)<0.01*(v[s-1]-v[0])){
-	M=v[s-1];
-	m=v[0];
-	zoom(m,M,1.1);
+      bool b=(M-m)<0.01*(v[s-1]-v[0]);
+      if (fullview || 1.75*(M-m)>(v[s-1]-v[0]) || b){
+	if (b)
+	  zoom(m,M,3);
+	else {
+	  M=v[s-1];
+	  m=v[0];
+	  zoom(m,M,1.1);
+	}
       }
       else
 	zoom(m,M,1/0.8);

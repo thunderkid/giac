@@ -191,7 +191,7 @@ namespace xcas {
     int lineHeight=17;
     std::vector<textElement> elements,undoelements;
     const char* title = NULL;
-    std::string filename;
+    std::string filename; 
     int scrollbar=1;
     bool allowEXE=false; //whether to allow EXE to exit the screen
     bool allowF1=false; //whether to allow F1 to exit the screen
@@ -287,7 +287,7 @@ namespace xcas {
     // only 12 used, last line [0,0,0,1], usual matrices, not transposed
     int display_mode,show_axes,show_edges,show_names,labelsize,lcdz,default_upcolor,default_downcolor,default_downupcolor,default_downdowncolor;
     short int precision,diffusionz,diffusionz_limit;
-    bool is3d,doprecise,hide2nd,interval,solid3d,must_redraw;
+    bool is3d,doprecise,hide2nd,interval,solid3d,must_redraw,tracemode;
     double Ai,Aj,Bi,Bj,Ci,Cj,Di,Dj,Ei,Ej,Fi,Fj,Gi,Gj,Hi,Hj; // visualization cube coordinates
     std::vector< std::vector< std::vector<float3d> > > surfacev;
     std::vector<double3> plan_pointv; // point in plan 
@@ -308,7 +308,7 @@ namespace xcas {
     std::vector<double3> pointv; 
     std::vector<const char *> points; // legende
     std::vector<int4> hyp_color,plan_color,sphere_color,polyedre_color,line_color,curve_color,point_color;
-    giac::gen g; // normal graph instructions
+    giac::gen g; // concatenation of plot_instructions, trace_instructions...
     const giac::context * contextptr;
     /* geometry data */
     double current_i,current_j;
@@ -341,6 +341,7 @@ namespace xcas {
     bool pushed=false,moving=false,moving_frame=false,in_area=true;
     bool moving_param; double param_orig,param_value,param_min,param_max,param_step;
     int nparams;
+    int tracemode_n,tracemode_i; string tracemode_add; giac::gen tracemode_disp;
     /* end geometry data */
     giac::vecteur param(double d) const;
     void adjust_cursor_point_type();
@@ -351,6 +352,8 @@ namespace xcas {
     giac::gen geometry_round(double x,double y,double z,double eps,giac::gen & original,int & pos,bool selectfirstlevel=false,bool setscroller=false);
     giac::vecteur selection2vecteur(const std::vector<int> & v);
     void set_mode(const giac::gen & f_tmp,const giac::gen & f_final,int m,const std::string & help);
+    void invert_tracemode();
+    void tracemode_set();
     void add_entry(int pos);
     double find_eps() const;
     void find_xyz(double i,double j,double k,double & x,double & y,double & z) const;
@@ -369,8 +372,10 @@ namespace xcas {
     bool findij(const giac::gen & e0,double x_scale,double y_scale,double & i0,double & j0,const giac::context * ) const;
     void xyz2ij(const double3 & d,int &i,int &j) const; // d not transformed
     void xyz2ij(const double3 & d,double &i,double &j) const; // d not transformed
+    void xyz2ij(const double3 & d,double &i,double &j,double3 & d3) const; // d not transformed, d3 is
     void XYZ2ij(const double3 & d,int &i,int &j) const; // d is transformed
     void addpolyg(vector<int2> & polyg,double x,double y,double z,int2 & IJmin) const ;
+    void adddepth(vector<int2> & polyg,const double3 &A,const double3 &B,int2 & IJmin) const;
     void update_scales();
     void update();
     void update_rotation(); // update grot
@@ -407,7 +412,7 @@ namespace xcas {
   };
   
   int run(const char * s,int do_logo_graph_eqw,const giac::context * contextptr);
-  int displaygraph(const giac::gen & ge, const giac::context * contextptr);
+  int displaygraph(const giac::gen & ge, const giac::gen & gs,const giac::context * contextptr); // ge evaled, gs instruction
   int displaylogo();
   giac::gen eqw(const giac::gen & ge,bool editable,const giac::context * contextptr);
   void print(int &X,int&Y,const char * buf,int color,bool revert,bool fake,bool minimini);
@@ -544,9 +549,14 @@ namespace xcas {
   void fix_sheet(tableur & t,const giac::context *);
   std::string print_tableur(const tableur & t,const giac::context *);
 
-  int check_do_graph(giac::gen & ge,int do_logo_graph_eqw,const giac::context *);
+  int check_do_graph(giac::gen & ge,const giac::gen & gs,int do_logo_graph_eqw,const giac::context *);
   int get_filename(char * filename,const char * extension);
   int find_color(const char * s,const giac::context *);
+  void geosave(textArea * text,const giac::context *);
+  int newgeo(const giac::context *);
+  void cleargeo();
+  int geoloop(Graph2d * geoptr);
+  bool geoparse(textArea *text,const giac::context *);
 
 #ifndef NO_NAMESPACE_XCAS
 } // namespace xcas

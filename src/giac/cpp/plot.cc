@@ -1084,24 +1084,28 @@ namespace giac {
     k %= 126;
     if (k<0)
       k += 126;
-    if (k<21){
-      r=251; g=0; b=12*k;
+    if (k<63){
+      if (k<21){
+	r=251; g=0; b=12*k; return;
+      }
+      if (k>=21 && k<42){
+	r=251-(12*(k-21)); g=0; b=251; return ;
+      } 
+      if (k>=42 && k<63){
+	r=0; g=(k-42)*12; b=251; return;
+      }
     }
-    if (k>=21 && k<42){
-      r=251-(12*(k-21)); g=0; b=251;
-    } 
-    if (k>=42 && k<63){
-      r=0; g=(k-42)*12; b=251;
-    } 
-    if (k>=63 && k<84){
-      r=0; g=251; b=251-(k-63)*12;
-    } 
-    if (k>=84 && k<105){
-      r=(k-84)*12; g=251; b=0;
-    } 
-    if (k>=105 && k<126){
-      r=251; g=251-(k-105)*12; b=0;
-    } 
+    else {
+      if (k>=63 && k<84){
+	r=0; g=251; b=251-(k-63)*12; return;
+      } 
+      if (k>=84 && k<105){
+	r=(k-84)*12; g=251; b=0; return;
+      } 
+      if (k>=105 && k<126){
+	r=251; g=251-(k-105)*12; b=0; return;
+      }
+    }
   }
 
   static const int arc_en_ciel_colors=15;
@@ -1536,7 +1540,7 @@ namespace giac {
 	  if (debug_infolevel)
 	    CERR << y << " not real at " << i << " value " << yy << " type " << int(yy.type) << '\n';
 	  if (!chemin.empty())
-	    res.push_back(pnt_attrib(symb_curve(gen(makevecteur(vars+cst_i*f,vars,xmin,i,showeq),_PNT__VECT),gen(chemin,_GROUP__VECT)),attributs.empty()?color:attributs,contextptr));
+	    res.push_back(pnt_attrib(symb_curve(gen(makevecteur(vars+cst_i*f,vars,xmin,i-step,showeq),_PNT__VECT),gen(chemin,_GROUP__VECT)),attributs.empty()?color:attributs,contextptr));
 	  xmin=i;
 	  chemin.clear();
 	  continue;
@@ -1578,7 +1582,7 @@ namespace giac {
 	      CERR << y << " step at " << i << " " << yy << '\n';
 	      CERR << "curve " << chemin.size() << " " << chemin.front() << " .. " << chemin.back() << '\n';
 	    }
-	    res.push_back(pnt_attrib(symb_curve(gen(makevecteur(vars+cst_i*f,vars,xmin,i,showeq),_PNT__VECT),gen(chemin,_GROUP__VECT)),attributs.empty()?color:attributs,contextptr));
+	    res.push_back(pnt_attrib(symb_curve(gen(makevecteur(vars+cst_i*f,vars,xmin,i-step,showeq),_PNT__VECT),gen(chemin,_GROUP__VECT)),attributs.empty()?color:attributs,contextptr));
 	  }
 	  xmin=i;
 	  chemin=vecteur(1,gen(i,j));
@@ -8716,7 +8720,13 @@ namespace giac {
 	chemin.push_back(gen(i,j));
       else {
 	if (!chemin.empty())
-	  res.push_back(symb_pnt(symb_curve(gen(makevecteur(fC,vars,function_tmin,t,0,equation,parameq,vparam),_PNT__VECT),gen(chemin,_GROUP__VECT)),attribut,contextptr));
+	  res.push_back(symb_pnt(symb_curve(gen(makevecteur(fC,vars,function_tmin,
+#if 0
+							    t,
+#else
+							    t-function_tstep,
+#endif
+							    0,equation,parameq,vparam),_PNT__VECT),gen(chemin,_GROUP__VECT)),attribut,contextptr));
 	function_tmin=t;
 	chemin=vecteur(1,gen(i,j));
       }
@@ -8724,7 +8734,13 @@ namespace giac {
       oldj=j;
     }
     if (!chemin.empty())
-      res.push_back(symb_pnt(symb_curve(gen(makevecteur(fC,vars,function_tmin,function_tmax,0,equation,parameq,vparam),_PNT__VECT),gen(chemin,_GROUP__VECT)),attribut,contextptr));
+      res.push_back(symb_pnt(symb_curve(gen(makevecteur(fC,vars,function_tmin,
+#if 0
+							function_tmax,
+#else
+							t-function_tstep,
+#endif
+							0,equation,parameq,vparam),_PNT__VECT),gen(chemin,_GROUP__VECT)),attribut,contextptr));
     leave(protect,localvar,newcontextptr);
     // io_graph(old_io_graph,contextptr);
 #if !defined(WIN32) && defined(WITH_GNUPLOT)
@@ -8963,7 +8979,7 @@ namespace giac {
 	vecteur attributs(1,default_color(contextptr));
 	int a=read_attributs(v,attributs,contextptr);
 	if (a==s-1 && attributs!=vecteur(1,default_color(contextptr))){
-	  gen res=_plot(a==1?v.front():gen(vecteur(v.begin(),v.begin()+a)),contextptr);
+	  gen res=_plot(a==1?v.front():gen(vecteur(v.begin(),v.begin()+a),g.subtype),contextptr);
 	  if (res.type==_VECT){
 	    vecteur w=*res._VECTptr;
 	    for (int i=0;i<w.size();++i){
@@ -11083,6 +11099,16 @@ namespace giac {
 	vecteur & valv = *valf._VECTptr;
 	int s = int(valv.size());
 	if (s>1){
+	  gen valv0=valv[0];
+	  if (valv0.is_symb_of_sommet(at_legende)){
+	    valv0=valv0._SYMBptr->feuille;
+	    valv0=valv0[1];
+	    if (valv0.type==_STRNG){
+	      valv0=gen(*valv0._STRNGptr,contextptr);
+	      if (valv0.type<=_SYMB)
+		return valv0;
+	    }
+	  }
 	  gen valv1=valv[1];
 	  if (valv1.type==_VECT && valv1._VECTptr->size()>2){
 	    tmp=(*valv1._VECTptr)[1];
@@ -16602,6 +16628,16 @@ gen _vers(const gen & g,GIAC_CONTEXT){
   // moved from plot3d.cc for implicittex_plot_sommets_alias
   gen _plot3d(const gen & g,const context * contextptr){
     if ( g.type==_STRNG && g.subtype==-1) return  g;
+    if (g.type!=_VECT){
+      vecteur v(lidnt(eval(g,1,contextptr)));
+      if (v.size()==2)
+	return _plot3d(makesequence(g,v.front(),v.back()),contextptr);
+      if (v.size()==1){
+	gen z=v.front();
+	gen G=subst(g,z,x__IDNT_e+cst_i*y__IDNT_e,false,contextptr);
+	return _plot3d(makesequence(G,x__IDNT_e,y__IDNT),contextptr);
+      }
+    }
     if (g.type!=_VECT || g._VECTptr->size()<2)
       return symbolic(at_plot3d,g);
     vecteur v=*g._VECTptr;

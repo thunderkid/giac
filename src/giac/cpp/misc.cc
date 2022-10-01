@@ -6564,7 +6564,7 @@ static define_unary_function_eval (__os_version,&_os_version,_os_version_s);
     if (args._STRNGptr->size()>8 && args._STRNGptr->substr(0,8)=="timeout "){
       string t=args._STRNGptr->substr(8,args._STRNGptr->size()-8);
       double f=atof(t.c_str());
-      if (f>=0 && f<24*60){
+      if (f>=0 && f<24*60*60){
 	caseval_maxtime=f;
 	caseval_n=0;
 	caseval_mod=10;
@@ -9440,6 +9440,12 @@ void sync_screen(){}
 
   //Uses the Bresenham line algorithm 
   void draw_line(int x1, int y1, int x2, int y2, int color,GIAC_CONTEXT) {
+    if ( (x1 & 0xfffff000) ||
+	 (x2 & 0xfffff000) ||
+	 (y1 & 0xfffff000) ||
+	 (y2 & 0xfffff000) 
+	 )
+      return;
     int w =(color & 0x00070000) >> 16;
     ++w;
     int type_line =(color & 0x01c00000) >> 22,mask=0xffff; // 3 bits
@@ -9635,6 +9641,7 @@ void sync_screen(){}
   }
 
   void draw_polygon(vector< vector<int> > & v1,int color,GIAC_CONTEXT){
+    if (v1.empty()) return;
     if (!(v1.back()==v1.front()))
       v1.push_back(v1.front());
     int n=v1.size()-1;

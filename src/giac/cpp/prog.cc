@@ -7453,6 +7453,27 @@ namespace giac {
   static define_unary_function_eval (__inferieur_strict_sort,&_inferieur_strict_sort,_inferieur_strict_sort_s);
   define_unary_function_ptr5( at_inferieur_strict_sort ,alias_at_inferieur_strict_sort,&__inferieur_strict_sort,0,true);
 
+#if 0
+  void mysort(iterateur it,iterateur itend,const gen & f,GIAC_CONTEXT){
+    int s=itend-it;
+    for (;;){
+      bool ok=true;
+      for (int i=0;i<s-1;++i){
+	if (!is_zero(f(makesequence(*(it+i+1),*(it+i)),contextptr))){
+	  ok=false;
+	  swapgen(*(it+i+1),*(it+i));
+	}
+      }
+      if (ok)
+	return;
+    }
+  }
+#else
+  void mysort(iterateur it,iterateur itend,const gen & f,GIAC_CONTEXT){
+    sort(it,itend,gen_sort(f,contextptr));
+  }
+#endif
+
   gen _sort(const gen & args,GIAC_CONTEXT){
     if ( args.type==_STRNG &&  args.subtype==-1) return  args;
     if (args.type==_SYMB)
@@ -7516,7 +7537,7 @@ namespace giac {
 	return gen(v,subtype);
       }
     }
-    sort(v.begin(),v.end(),gen_sort(f,contextptr));
+    mysort(v.begin(),v.end(),f,contextptr);
     if (rev)
       reverse(v.begin(),v.end());
     return gen(v,subtype);
@@ -8517,6 +8538,19 @@ namespace giac {
   static const char _read32_s []="read32";
   static define_unary_function_eval (__read32,&_read32,_read32_s);
   define_unary_function_ptr5( at_read32 ,alias_at_read32 ,&__read32,0,true);
+
+  gen _addr(const gen & g,GIAC_CONTEXT){
+    if (g.type==_VECT && g.subtype==_SEQ__VECT && g._VECTptr->size()==2){
+      gen & obj=g._VECTptr->front();
+      vecteur & ptr=*obj._VECTptr;
+      return makevecteur((longlong) (&ptr),(int) taille(obj,RAND_MAX),tailles(obj));
+    }
+    vecteur & ptr=*g._VECTptr;
+    return (longlong) (&ptr);
+  }
+  static const char _addr_s []="addr";
+  static define_unary_function_eval (__addr,&_addr,_addr_s);
+  define_unary_function_ptr5( at_addr ,alias_at_addr,&__addr,0,true);
 
 #ifdef NSPIRE_NEWLIB
   gen _read_nand(const gen & args,GIAC_CONTEXT){

@@ -74,6 +74,8 @@ extern "C" {
   double r_det(double *,int);
   struct double_pair {
     double r,i;
+    double_pair operator +=(const double_pair &);
+    double_pair operator -=(const double_pair &);
   } ;
   typedef struct double_pair c_complex;
   bool matrice2c_complexptr(const giac::matrice &M,c_complex *x);
@@ -98,12 +100,20 @@ extern "C" {
   void c_turtle_up(int i);
   void c_turtle_goto(double x,double y);
   void c_turtle_cap(double x);
-  void c_turtle_crayon(int i);
+  int c_turtle_crayon(int i);
   void c_turtle_rond(int x,int y,int z);
   void c_turtle_disque(int x,int y,int z,int centered);
   void c_turtle_fill(int i);
   void c_turtle_fillcolor(double r,double g,double b,int entier);
   void c_turtle_getposition(double * x,double * y);
+  void c_turtle_clear(int clrpos);
+  void c_turtle_show(int visible);
+  int c_turtle_getcap();
+  void c_turtle_towards(double x,double y);
+  int c_turtle_getcolor();
+  void c_turtle_color(int);
+  void c_turtle_fillcolor1(int c);
+  
 }
 extern int lang;
 extern short int nspirelua;
@@ -138,6 +148,7 @@ namespace xcas {
   void Equation_select(giac::gen & eql,bool select);
   int eqw_select_down(giac::gen & g);
   int eqw_select_up(giac::gen & g);
+  giac::gen Equation_copy(const giac::gen & g);
 
   giac::gen Equation_compute_size(const giac::gen & g,const giac::attributs & a,int windowhsize,const giac::context * contextptr);
   giac::eqwdata Equation_total_size(const giac::gen & g);  
@@ -168,7 +179,7 @@ namespace xcas {
   typedef struct
   {
     std::string s;
-    color_t color=giac::_BLACK;
+    color_t color=::giac::_BLACK;
     short int newLine=0; // if 1, new line will be drawn before the text
     short int spaceAtEnd=0;
     short int lineSpacing=0;
@@ -287,7 +298,10 @@ namespace xcas {
     // only 12 used, last line [0,0,0,1], usual matrices, not transposed
     int display_mode,show_axes,show_edges,show_names,labelsize,lcdz,default_upcolor,default_downcolor,default_downupcolor,default_downdowncolor;
     short int precision,diffusionz,diffusionz_limit;
-    bool is3d,doprecise,hide2nd,interval,solid3d,must_redraw,tracemode;
+    bool is3d,doprecise,hide2nd,interval,solid3d,must_redraw;
+    int tracemode;
+    // bit0=(x,y), bit1=tangent(x',y'), m=pente (ou singulier),
+    // bit2=normal(-y',x'), bit3=osculateur, R_courbure
     double Ai,Aj,Bi,Bj,Ci,Cj,Di,Dj,Ei,Ej,Fi,Fj,Gi,Gj,Hi,Hj; // visualization cube coordinates
     std::vector< std::vector< std::vector<float3d> > > surfacev;
     std::vector<double3> plan_pointv; // point in plan 
@@ -341,7 +355,7 @@ namespace xcas {
     bool pushed=false,moving=false,moving_frame=false,in_area=true;
     bool moving_param; double param_orig,param_value,param_min,param_max,param_step;
     int nparams;
-    int tracemode_n,tracemode_i; string tracemode_add; giac::gen tracemode_disp;
+    int tracemode_n; double tracemode_i; string tracemode_add; giac::vecteur tracemode_disp; double tracemode_mark;
     /* end geometry data */
     giac::vecteur param(double d) const;
     void adjust_cursor_point_type();
@@ -353,13 +367,15 @@ namespace xcas {
     giac::vecteur selection2vecteur(const std::vector<int> & v);
     void set_mode(const giac::gen & f_tmp,const giac::gen & f_final,int m,const std::string & help);
     void invert_tracemode();
-    void tracemode_set();
+    void tracemode_set(int operation=0); // operation==1 if user is setting the value of t on a parametric curve, operation==2 for root, operation==3 for extremum, operation==4 mark current position, operation=5 for area
     void add_entry(int pos);
     double find_eps() const;
     void find_xyz(double i,double j,double k,double & x,double & y,double & z) const;
     void set_gen_value(int n,const giac::gen & g,bool exec=true); // set n-th entry value
     int geo_handle(int event,int key);
     int ui();
+    void curve_infos();
+    void init_tracemode();
     giac::vecteur selected_names(bool allobjects,bool withdef) const;
     void find_title_plot(giac::gen & title_tmp,giac::gen & plot_tmp);
     void draw_decorations(const giac::gen & title_tmp);
@@ -419,7 +435,7 @@ namespace xcas {
 
   void save_session(const giac::context * );
 #if 1
-#define MAX_FILENAME_SIZE 63
+#define MAX_FILENAME_SIZE 270
   void save_console_state_smem(const char * filename,bool xwaspy,const giac::context *);
   bool load_console_state_smem(const char * filename,const giac::context *);
 
@@ -493,8 +509,12 @@ namespace xcas {
   };
 
 #define MAX_FMENU_ITEMS 8
+#ifdef HP39
+#define FMENU_TITLE_LENGHT 8
+#else
 #define FMENU_TITLE_LENGHT 4
-
+#endif
+  
 #define is_wchar(c) ((c == 0x7F) || (c == 0xF7) || (c == 0xF9) || (c == 0xE5) || (c == 0xE6) || (c == 0xE7))
 #define printf(s) Console_Output((const char *)s);
 
@@ -591,12 +611,12 @@ namespace giac {
     int value:4=MENUITEM_VALUE_NONE; // value of the menu item. For example, if type is MENUITEM_CHECKBOX and the checkbox is checked, the value of this var will be MENUITEM_VALUE_CHECKED
     int isselected:4=0; // for file browsers and other multi-select screens, this will show an arrow before the item
     short int isfolder=0; // for file browsers, this will signal the item is a folder
-    signed char color=giac::_BLACK; // color of the menu item (use TEXT_COLOR_* to define)
+    signed char color=::giac::_BLACK; // color of the menu item (use TEXT_COLOR_* to define)
     // The following two settings require the menu type to be set to MENUTYPE_MULTISELECT
 #if 0
     signed char icon=-1; //for file browsers, to show a file icon. -1 shows no icon (default)
 #endif
-    MenuItem():token(0),type(MENUITEM_NORMAL),value(MENUITEM_VALUE_NONE),isselected(0),isfolder(0),color(giac::_BLACK) {}
+    MenuItem():token(0),type(MENUITEM_NORMAL),value(MENUITEM_VALUE_NONE),isselected(0),isfolder(0),color(::giac::_BLACK) {}
   } ;
 
   typedef struct
@@ -614,7 +634,7 @@ namespace giac {
     char* statusText = NULL; // text to be shown on the status bar, may be empty
     char* title = NULL; // title to be shown on the first line if not null
     char* subtitle = NULL;
-    int titleColor=giac::_BLUE; //color of the title
+    int titleColor=::giac::_BLUE; //color of the title
     char* nodatamsg; // message to show when there are no menu items to display
     int startX=1; //X where to start drawing the menu. NOTE this is not absolute pixel coordinates but rather character coordinates
     int startY=0; //Y where to start drawing the menu. NOTE this is not absolute pixel coordinates but rather character coordinates
@@ -682,25 +702,24 @@ namespace giac {
 #endif // ndef NO_NAMESPACE_XCAS
 
 
-#define COLOR_BLACK giac::_BLACK
-#define COLOR_RED giac::_RED
-#define COLOR_GREEN giac::_GREEN
-#define COLOR_CYAN giac::_CYAN
-#define COLOR_BLUE giac::_BLUE
-#define COLOR_YELLOW giac::_YELLOW
-#define COLOR_MAGENTA giac::_MAGENTA
-#define COLOR_WHITE giac::_WHITE
+#define COLOR_BLACK ::giac::_BLACK
+#define COLOR_RED ::giac::_RED
+#define COLOR_GREEN ::giac::_GREEN
+#define COLOR_CYAN ::giac::_CYAN
+#define COLOR_BLUE ::giac::_BLUE
+#define COLOR_YELLOW ::giac::_YELLOW
+#define COLOR_MAGENTA ::giac::_MAGENTA
+#define COLOR_WHITE ::giac::_WHITE
 #define COLOR_YELLOWDARK 64934
 #define COLOR_BROWN 65000
-#define TEXT_COLOR_BLACK giac::_BLACK
-#define TEXT_COLOR_RED giac::_RED
-#define TEXT_COLOR_GREEN giac::_GREEN
-#define TEXT_COLOR_CYAN giac::_CYAN
-#define TEXT_COLOR_BLUE giac::_BLUE
-#define TEXT_COLOR_YELLOW giac::_YELLOW
-#define TEXT_COLOR_WHITE giac::_WHITE
-#define TEXT_COLOR_MAGENTA giac::_MAGENTA
-
+#define TEXT_COLOR_BLACK ::giac::_BLACK
+#define TEXT_COLOR_RED ::giac::_RED
+#define TEXT_COLOR_GREEN ::giac::_GREEN
+#define TEXT_COLOR_CYAN ::giac::_CYAN
+#define TEXT_COLOR_BLUE ::giac::_BLUE
+#define TEXT_COLOR_YELLOW ::giac::_YELLOW
+#define TEXT_COLOR_WHITE ::giac::_WHITE
+#define TEXT_COLOR_MAGENTA ::giac::_MAGENTA
 
 #endif // _KDISPLAY_H
 #endif

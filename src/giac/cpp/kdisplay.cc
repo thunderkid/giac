@@ -17,7 +17,7 @@
  */
 #include "config.h"
 #include "giacPCH.h"
-#if defined HAVE_UNISTD_H && !defined NUMWORKS
+#if defined HAVE_UNISTD_H && !defined NUMWORKS && !defined HP39
 #include <dirent.h>
 #endif
 #ifdef NSPIRE_NEWLIB
@@ -29,11 +29,14 @@
 #include <syscall.h>
 #include "sha256.h"
 #endif
+#include <alloca.h>
 #ifndef is_cx2
 #define is_cx2 false
 #endif
-
-
+int osok=1;
+// pour le mode examen cx2, il y a 2 endroits ou is_cx2 est utilise dans smallmenu.selection==1
+// soit par extinction des leds (marche avec OS 5.2)
+// soit comme sur la CX si l'ecriture en flash NAND marche un jour
 
 #ifdef KHICAS
 
@@ -3422,7 +3425,7 @@ const catalogFunc completeCaten[] = { // list of all functions (including some n
     return radius;
   }
 
-  static void turtle_move(int r,int theta2,GIAC_CONTEXT){
+  static void c_turtle_move(int r,int theta2){
     double theta0;
     if ((*turtleptr).direct)
       theta0=(*turtleptr).theta-90;
@@ -3439,6 +3442,9 @@ const catalogFunc completeCaten[] = { // list of all functions (including some n
       (*turtleptr).theta -= 360;
   }
 
+  static void turtle_move(int r,int theta2,GIAC_CONTEXT){
+    c_turtle_move(r,theta2);
+  }
   gen _rond(const gen & g,GIAC_CONTEXT){
     if ( g.type==_STRNG && g.subtype==-1) return  g;
     int r,theta2,tmpr;
@@ -7114,7 +7120,7 @@ namespace xcas {
   }
 
   Graph2d::Graph2d(const giac::gen & g_,const giac::context * cptr):window_xmin(gnuplot_xmin),window_xmax(gnuplot_xmax),window_ymin(gnuplot_ymin),window_ymax(gnuplot_ymax),window_zmin(gnuplot_zmin),window_zmax(gnuplot_zmax),g(g_),display_mode(0x45),show_axes(1),show_edges(1),show_names(1),labelsize(16),precision(1),contextptr(cptr),hp(0),npixels(5),couleur(0),nparams(0) {
-    tracemode=false; tracemode_n=0; tracemode_i=0;
+    tracemode=0; tracemode_n=0; tracemode_i=0;
     current_i=LCD_WIDTH_PX/3;
     current_j=LCD_HEIGHT_PX/3;
     push_depth=current_depth=0;
@@ -7267,7 +7273,7 @@ namespace xcas {
 	double window_xcenter=(window_xmin+window_xmax)/2;
 	double window_wsize=w/h*window_h;
 	window_xmin=window_xcenter-window_wsize/2;
-      window_xmax=window_xcenter+window_wsize/2;
+	window_xmax=window_xcenter+window_wsize/2;
       }
       if (window_h < window_hsize*0.99) { // enlarge vertically
 	double window_ycenter=(window_ymin+window_ymax)/2;
@@ -8436,11 +8442,11 @@ namespace xcas {
       }
       s[pos]=0;
       if (tracemode){
-	os_draw_string_small_(LCD_WIDTH_PX-fl_width(s),2,s);
-	// additional infos available
 	if (tracemode_add.size())
-	  os_draw_string_small_(0,2,tracemode_add.c_str());
-	if (tracemode_disp.type!=_INT_)
+	  os_draw_string_small_(0,0,tracemode_add.c_str());
+	else
+	  os_draw_string_small_(LCD_WIDTH_PX-fl_width(s),0,s);	  
+	if (!tracemode_disp.empty())
 	  fltk_draw(*this,tracemode_disp,x_scale,y_scale,0,0,LCD_WIDTH_PX,LCD_HEIGHT_PX,contextptr);
       }
       else
@@ -8856,9 +8862,9 @@ namespace xcas {
 	}
       }      
 #ifdef NSPIRE_NEWLIB
-      DefineStatusMessage((char*)"+-: zoom, menu: menu, esc: quit", 1, 0, 0);
+      DefineStatusMessage((char*)"menu: menu, esc: quit", 1, 0, 0);
 #else
-      DefineStatusMessage((char*)"+-: zoom, home: menu, EXIT: quit", 1, 0, 0);
+      DefineStatusMessage((char*)"shift-1: help, home: menu, back: quit", 1, 0, 0);
 #endif
       DisplayStatusArea();
       if (hp || tracemode)
@@ -9247,7 +9253,9 @@ namespace xcas {
     xcas::Graph2d gr(ge,contextptr);
     if (gs!=0) gr.symbolic_instructions=gen2vecteur(gs);
     gr.show_axes=global_show_axes;
-    gr.tracemode=true;  gr.tracemode_set();
+    gr.init_tracemode();
+    if (gr.tracemode & 4)
+      gr.orthonormalize(true);
     // initial setting for x and y
     if (ge.type==_VECT){
       const_iterateur it=ge._VECTptr->begin(),itend=ge._VECTptr->end();
@@ -9547,9 +9555,25 @@ namespace xcas {
     }
   }
 
-  void Graph2d::tracemode_set(){
+  std::string printn(const gen & g,int n){
+    if (g.type!=_DOUBLE_)
+      return g.print();
+    return giac::print_DOUBLE_(g._DOUBLE_val,n);
+  }
+  void Graph2d::tracemode_set(int operation){
     if (plot_instructions.empty())
       plot_instructions=gen2vecteur(g);
+    if (is_zero(plot_instructions.back())) // workaround for 0 at end in geometry (?)
+      plot_instructions.pop_back();
+    gen sol(undef);
+    if (operation==1 || operation==8){
+      double d=tracemode_mark;
+      if (!inputdouble(lang==1?"Valeur du parametre?":"Parameter value",d,contextptr))
+	return;
+      if (operation==8)
+	tracemode_mark=d;
+      sol=d;
+    }
     // handle curves with more than one connected component
     vecteur tracemode_v;
     for (int i=0;i<plot_instructions.size();++i){
@@ -9585,32 +9609,342 @@ namespace xcas {
 	return;
       }
     }
+    int p=python_compat(contextptr);
+    python_compat(0,contextptr);
+    gen G_orig(G);
     G=remove_at_pnt(G);
+    tracemode_disp.clear();
+    string curve_infos1,curve_infos2;
     gen parameq,x,y,t,tmin,tmax,tstep;
     // extract position at tracemode_i
     if (G.is_symb_of_sommet(at_curve)){
       gen c=G._SYMBptr->feuille[0];
       parameq=c[0];
+      // simple expand for i*ln(x)
+      bool b=do_lnabs(contextptr);
+      do_lnabs(false,contextptr);
       reim(parameq,x,y,contextptr);
+      do_lnabs(b,contextptr);
       t=c[1];
+      gen x1=derive(x,t,contextptr);
+      gen x2=derive(x1,t,contextptr);
+      gen y1=derive(y,t,contextptr);
+      gen y2=derive(y1,t,contextptr);
+      sto(x,gen("x0",contextptr),contextptr);
+      sto(x1,gen("x1",contextptr),contextptr);
+      sto(x2,gen("x2",contextptr),contextptr);
+      sto(y,gen("y0",contextptr),contextptr);
+      sto(y1,gen("y1",contextptr),contextptr);
+      sto(y2,gen("y2",contextptr),contextptr);
       tmin=c[2];
       tmax=c[3];
+      tmin=evalf_double(tmin,1,contextptr);
+      tmax=evalf_double(tmax,1,contextptr);
+      if (tmin._DOUBLE_val>tracemode_mark)
+	tracemode_mark=tmin._DOUBLE_val;
+      if (tmax._DOUBLE_val<tracemode_mark)
+	tracemode_mark=tmax._DOUBLE_val;
       G=G._SYMBptr->feuille[1];
       if (G.type==_VECT){
 	vecteur &Gv=*G._VECTptr;
 	tstep=(tmax-tmin)/(Gv.size()-1);
       }
+      double eps=1e-6; // epsilon(contextptr)
+      double curt=(tmin+tracemode_i*tstep)._DOUBLE_val;
+      if (abs(curt-tracemode_mark)<tstep._DOUBLE_val)
+	curt=tracemode_mark;
+      if (operation==-1){
+	gen A,B,C,R; // detect ellipse/hyperbola
+	if (
+	    ( x!=t && c.type==_VECT && c._VECTptr->size()>7 && centre_rayon(G_orig,C,R,false,contextptr,true) ) ||
+	    is_quadratic_wrt(parameq,t,A,B,C,contextptr)
+	    ){
+	  if (C.type!=_VECT){ // x+i*y=A*t^2+B*t+C
+	    curve_infos1="Parabola";
+	    curve_infos2=_equation(G_orig,contextptr).print(contextptr);
+	  }
+	  else {
+	    vecteur V(*C._VECTptr);
+	    curve_infos1=V[0].print(contextptr);
+	    curve_infos1=curve_infos1.substr(1,curve_infos1.size()-2);
+	    curve_infos1+=" O=";
+	    curve_infos1+=V[1].print(contextptr);
+	    curve_infos1+=", F=";
+	    curve_infos1+=V[2].print(contextptr);
+	    // curve_infos1=change_subtype(C,_SEQ__VECT).print(contextptr);
+	    curve_infos2=change_subtype(R,_SEQ__VECT).print(contextptr);
+	  }
+	}
+	else {
+	  if (x==t) curve_infos1="Function "+y.print(contextptr); else curve_infos1="Parametric "+x.print(contextptr)+","+y.print(contextptr);
+	  curve_infos2 = t.print(contextptr)+"="+tmin.print(contextptr)+".."+tmax.print(contextptr)+',';
+	  curve_infos2 += (x==t?"xstep=":"tstep=")+tstep.print(contextptr);
+	}
+      }
+      if (operation==1)
+	curt=sol._DOUBLE_val;
+      if (operation==7)
+	sol=tracemode_mark=curt;
+      if (operation==2){ // root near curt
+	sol=newton(y,t,curt,NEWTON_DEFAULT_ITERATION,eps,1e-12,true,tmin._DOUBLE_val,tmax._DOUBLE_val,1,0,1,contextptr);
+	if (sol.type==_DOUBLE_){
+	  confirm(lang==1?"Racine en":"Root at",sol.print(contextptr).c_str());
+	  sto(sol,gen("Zero",contextptr),contextptr);
+	}
+      }
+      if (operation==4){ // horizontal tangent near curt
+	sol=newton(y1,t,curt,NEWTON_DEFAULT_ITERATION,eps,1e-12,true,tmin._DOUBLE_val,tmax._DOUBLE_val,1,0,1,contextptr);
+	if (sol.type==_DOUBLE_){
+	  confirm(lang==1?"y'=0, extremum/pt singulier en":"y'=0, extremum/singular pt at",sol.print(contextptr).c_str());
+	  sto(sol,gen("Extremum",contextptr),contextptr);
+	}
+      }
+      if (operation==5){ // vertical tangent near curt
+	if (x1==1)
+	  do_confirm(lang==1?"Outil pour courbes parametriques!":"Tool for parametric curves!");
+	else {
+	  sol=newton(x1,t,curt,NEWTON_DEFAULT_ITERATION,eps,1e-12,true,tmin._DOUBLE_val,tmax._DOUBLE_val,1,0,1,contextptr);
+	  if (sol.type==_DOUBLE_){
+	    confirm("x'=0, vertical or singular",sol.print(contextptr).c_str());
+	    sto(sol,gen("Vertical",contextptr),contextptr);
+	  }
+	}
+      }
+      if (operation==6){ // inflexion
+	sol=newton(x1*y2-x2*y1,t,curt,NEWTON_DEFAULT_ITERATION,eps,1e-12,true,tmin._DOUBLE_val,tmax._DOUBLE_val,1,0,1,contextptr);
+	if (sol.type==_DOUBLE_){
+	  confirm("x'*y''-x''*y'=0",sol.print(contextptr).c_str());
+	  sto(sol,gen("Inflexion",contextptr),contextptr);
+	}
+      }
+      gen M(put_attributs(_point(subst(parameq,t,tracemode_mark,false,contextptr),contextptr),vecteur(1,_POINT_WIDTH_4 | _BLUE),contextptr));
+      tracemode_disp.push_back(M);      
+      gen f;
+      if (operation==9)
+	f=y*derive(x,t,contextptr);
+      if (operation==10){
+	f=sqrt(pow(x1,2,contextptr)+pow(y1,2,contextptr),contextptr);
+      }
+      if (operation==9 || operation==10){
+	double a=tracemode_mark,b=curt;
+	if (a>b)
+	  swapdouble(a,b);
+	gen res=symbolic( (operation==9 && x==t?at_plotarea:at_integrate),
+			  makesequence(f,symb_equal(t,symb_interval(a,b))));
+	if (operation==9)
+	  tracemode_disp.push_back(giac::eval(res,1,contextptr));
+	string ss=res.print(contextptr);
+	if (!tegral(f,t,a,b,1e-6,1<<10,res,false,contextptr))
+	  confirm("Numerical Integration Error",ss.c_str());
+	else {
+	  confirm(ss.c_str(),res.print(contextptr).c_str());
+	  sto(res,gen((operation==9?"Area":"Arclength"),contextptr),contextptr);	  
+	}
+      }
+      if (operation>=1 && operation<=8 && sol.type==_DOUBLE_ && !is_zero(tstep)){
+	tracemode_i=(sol._DOUBLE_val-tmin._DOUBLE_val)/tstep._DOUBLE_val;
+	G=subst(parameq,t,sol._DOUBLE_val,false,contextptr);
+      }
     }
     if (G.is_symb_of_sommet(at_cercle)){
+      if (operation==-1){
+	gen c,r;
+	centre_rayon(G,c,r,true,contextptr);
+	curve_infos1="Circle radius "+r.print(contextptr);
+	curve_infos2="Center "+_coordonnees(c,contextptr).print(contextptr);
+      }
       G=G._SYMBptr->feuille[0];
     }
     if (G.type==_VECT){
       vecteur & v=*G._VECTptr;
-      if (tracemode_i>=v.size())
-	tracemode_i=0;
-      if (tracemode_i<0)
-	tracemode_i=v.size()-1;
-      G=v[tracemode_i];
+      if (operation==-1 && curve_infos1.size()==0){
+	if (v.size()==2)
+	  curve_infos1=_equation(G_orig,contextptr).print(contextptr);
+	else if (v.size()==4)
+	  curve_infos1="Triangle";
+	else curve_infos1="Polygon";
+	curve_infos2=G.print(contextptr);
+      }
+      int i=std::floor(tracemode_i);
+      double id=tracemode_i-i;
+      if (i>=int(v.size()-1)){
+	tracemode_i=i=v.size()-1;
+	id=0;
+      }
+      if (i<0){
+	tracemode_i=i=0;
+	id=0;
+      }
+      G=v[i];
+      if (!is_zero(tstep) && id>0)
+	G=v[i]+id*tstep*(v[i+1]-v[i]);
+    }
+    G=evalf(G,1,contextptr);
+    if (operation==3){ // intersect this curve with all other curves
+      vecteur V;
+      for (int j=0;j<tracemode_v.size();++j){
+	if (j==tracemode_n)
+	  continue;
+	gen H=tracemode_v[j];
+	gen I=_inter(makesequence(G_orig,H),contextptr);
+	if (I.type==_VECT)
+	  V=mergevecteur(V,*I._VECTptr);
+      }
+      sto(V,gen("Intersect",contextptr),contextptr);
+      tracemode_disp.clear();
+      tracemode_disp.push_back(put_attributs(V,vecteur(1,_POINT_WIDTH_6 | _RED),contextptr));
+      if (!V.empty()){
+	gen I1(undef),I2(undef),d1(plus_inf),d2(plus_inf);
+	for (int i=0;i<V.size();++i){
+	  gen cur=evalf_double(V[i],1,contextptr);
+	  if (i==0){
+	    I1=cur; d1=distance2pp(I1,G,contextptr);
+	    continue;
+	  }
+	  if (i==1){
+	    I2=cur; d2=distance2pp(I2,G,contextptr);
+	    if (is_strictly_greater(d1,d2,contextptr)){
+	      swapgen(I1,I2); swapgen(d1,d2);
+	    }
+	    continue;
+	  }
+	  gen d=distance2pp(cur,G,contextptr);
+	  if (is_strictly_greater(d1,d,contextptr)){
+	    I2=I1; d2=d1;
+	    I1=cur; d1=d;
+	    continue;
+	  }
+	  if (is_strictly_greater(d2,d,contextptr)){
+	    I2=cur; d2=d;
+	  }
+	} // end for loop in V
+	G=remove_at_pnt(I2);
+	I1=put_attributs(I1,vecteur(1,_POINT_WIDTH_6 | _BLUE),contextptr);
+	tracemode_disp.push_back(I1);      
+	if (is_undef(I2)) I2=I1;
+	I2=put_attributs(I2,vecteur(1,_POINT_WIDTH_6 | _BLUE),contextptr);
+	tracemode_disp.push_back(I2);      
+	// function curve: set nearest intersection as mark/position
+	if (t==x && !is_zero(tstep)){
+	  gen Ix,Iy;
+	  reim(remove_at_pnt(I1),Ix,Iy,contextptr);
+	  tracemode_mark=Ix._DOUBLE_val;
+	  reim(remove_at_pnt(I2),Ix,Iy,contextptr);
+	  tracemode_i=((Ix-tmin)/tstep)._DOUBLE_val;
+	}
+      }
+    } // end intersect
+    gen Gx,Gy; reim(G,Gx,Gy,contextptr);
+    Gx=evalf_double(Gx,1,contextptr);
+    Gy=evalf_double(Gy,1,contextptr);
+    if (operation==-1){
+      if (curve_infos1.size()==0)
+	curve_infos1="Position "+Gx.print(contextptr)+","+Gy.print(contextptr);
+      if (G_orig.is_symb_of_sommet(at_pnt)){
+	gen f=G_orig._SYMBptr->feuille;
+	if (f.type==_VECT && f._VECTptr->size()==3){
+	  f=f._VECTptr->back();
+	  curve_infos1 = f.print(contextptr)+": "+curve_infos1;
+	}
+      }
+      if (confirm(curve_infos1.c_str(),curve_infos2.c_str())==KEY_CTRL_F1 && tstep!=0){
+	double t0=tmin._DOUBLE_val,ts,tc=t0;
+	ts=find_tick(tstep._DOUBLE_val*5);
+	t0=int(t0/ts)*ts;
+	int ndisp=10,N=6,dy=0;
+	for (;;){
+#ifdef NUMWORKS
+	  statuslinemsg("Back: quit, up/down: move");
+#else
+	  statuslinemsg("esc: quit, up/down: move");
+#endif
+	  // table of values
+	  drawRectangle(0,dy,LCD_WIDTH_PX,LCD_HEIGHT_PX-dy,_WHITE);
+	  if (t==x){
+	    os_draw_string(0,dy,_BLACK,_WHITE,"x");
+	    os_draw_string(120,dy,_BLACK,_WHITE,y.print().c_str());
+	  }
+	  else {
+	    os_draw_string(0,dy,_BLACK,_WHITE,"t");
+	    os_draw_string(107,dy,_BLACK,_WHITE,"x");
+	    os_draw_string(214,dy,_BLACK,_WHITE,"y");
+	  }
+	  vecteur V;
+	  for (int i=1;i<=ndisp;++i){
+	    double tcur=tc+(i-1)*ts;
+	    vecteur L(1,tcur);
+	    os_draw_string(0,dy+i*18,_BLACK,_WHITE,printn(tcur,N).c_str());
+	    if (t==x){
+	      gen cur=subst(y,t,tcur,false,contextptr);
+	      L.push_back(cur);
+	      os_draw_string(120,dy+i*18,_BLACK,_WHITE,printn(cur,N).c_str());
+	    }
+	    else {
+	      gen cur=subst(x,t,tcur,false,contextptr);
+	      L.push_back(cur);
+	      os_draw_string(107,dy+i*18,_BLACK,_WHITE,printn(cur,N).c_str());
+	      cur=subst(y,t,tcur,false,contextptr);
+	      L.push_back(cur);
+	      os_draw_string(214,dy+i*18,_BLACK,_WHITE,printn(cur,N).c_str());	      
+	    }
+	    V.push_back(L);
+	  }
+	  int key=getkey(1);
+	  if (key==KEY_CTRL_EXIT || key==KEY_CTRL_OK)
+	    break;
+	  if (key==KEY_CTRL_UP)
+	    tc -= (ndisp/2)*ts;
+	  if (key==KEY_CTRL_DOWN)
+	    tc += (ndisp/2)*ts;
+	  if (key=='+')
+	    ts /= 2;
+	  if (key=='-')
+	    ts *= 2;
+	  if (key==KEY_CTRL_DEL && inputdouble("step",ts,contextptr))
+	    ts=fabs(ts);
+	  if (key==KEY_CTRL_LEFT)
+	    inputdouble("min",tc,contextptr);
+	  if (key==KEY_CTRL_CLIP)
+	    copy_clipboard(gen(V).print(contextptr),true);
+	}
+      }
+    }
+    tracemode_add="";
+    if (Gx.type==_DOUBLE_ && Gy.type==_DOUBLE_){
+      tracemode_add += "x="+print_DOUBLE_(Gx._DOUBLE_val,3)+",y="+print_DOUBLE_(Gy._DOUBLE_val,3);
+      if (tstep!=0){
+	gen curt=tmin+tracemode_i*tstep;
+	if (curt.type==_DOUBLE_){
+	  if (t!=x)
+	    tracemode_add += ", t="+print_DOUBLE_(curt._DOUBLE_val,3);
+	  if (tracemode & 2){
+	    gen G1=derive(parameq,t,contextptr);
+	    gen G1t=subst(G1,t,curt,false,contextptr);
+	    gen G1x,G1y; reim(G1t,G1x,G1y,contextptr);
+	    gen m=evalf_double(G1y/G1x,1,contextptr);
+	    if (m.type==_DOUBLE_)
+	      tracemode_add += ", m="+print_DOUBLE_(m._DOUBLE_val,3);
+	    gen T(_vector(makesequence(_point(G,contextptr),_point(G+G1t,contextptr)),contextptr));
+	    tracemode_disp.push_back(T);
+	    gen G2(derive(G1,t,contextptr));
+	    gen G2t=subst(G2,t,curt,false,contextptr);
+	    gen G2x,G2y; reim(G2t,G2x,G2y,contextptr);
+	    gen det(G1x*G2y-G2x*G1y);
+	    gen Tn=sqrt(G1x*G1x+G1y*G1y,contextptr);
+	    gen R=evalf_double(Tn*Tn*Tn/det,1,contextptr);
+	    gen centre=G+R*(-G1y+cst_i*G1x)/Tn;
+	    if (tracemode & 4){
+	      gen N(_vector(makesequence(_point(G,contextptr),_point(centre,contextptr)),contextptr));
+	      tracemode_disp.push_back(N);
+	    }
+	    if (tracemode & 8){
+	      if (R.type==_DOUBLE_)
+		tracemode_add += ", R="+print_DOUBLE_(R._DOUBLE_val,3);
+	      tracemode_disp.push_back(_cercle(makesequence(centre,R),contextptr));
+	    }
+	  }
+	}
+      }
     }
     double x_scale=LCD_WIDTH_PX/(window_xmax-window_xmin);
     double y_scale=LCD_HEIGHT_PX/(window_ymax-window_ymin);
@@ -9618,16 +9952,14 @@ namespace xcas {
     findij(G,x_scale,y_scale,i,j,contextptr);
     current_i=int(i+.5);
     current_j=int(j+.5);
+    python_compat(p,contextptr);
   }
 
   void Graph2d::invert_tracemode(){
-    if (is3d){
-      tracemode=false;
-      return;
-    }
-    tracemode=!tracemode;
-    if (tracemode)
-      tracemode_set();
+    if (!tracemode)
+      init_tracemode();
+    else
+      tracemode=0;
   }
 
   void Graph2d::set_mode(const giac::gen & f_tmp,const giac::gen & f_final,int m,const string & help){
@@ -10259,8 +10591,8 @@ namespace xcas {
     text.allowF1=false;
     text.python=false;
     add(&text,lang==1?
-	"haut/bas/droit/gauche: deplace pointeur ou change point de vue\ny^x ou e^x: trace 3d precis\nEsc/Back: quitte ou interrompt le trace 3d en cours\n( et ): modifie le rendu des surfaces raides 3d\n0: surfaces cachees 3d ON/OFF\n.: remplissage surface 3d raide ON/OFF\n5 reset 3d view\n7,8,9,1,2,3: deplacement 3d\n\nGeometrie\nF4: change le mode\nLe mode repere (shift 7) permet de changer le point de vue\nLe mode pointeur (shift 8) permet de bouger un objet et les objets dependants avec enter/OK et les touches de deplacement\nLes autres modes permettent de creer des objets\nEsc/Back: permet de passer en vue symbolique et de creer/modifier des objets par des commandes, taper enter/OK pour revenir en vue graphique\n4,6: modifie la profondeur du clic":
-	"up/down/right/left: move pointer or modify viewpoint\nEsc/Back: leave or interrupt 3d rendering\ny^x or e^x: precise 3d\n( and ): modify stiff surfaces 3d rendering\n0: hidden 3d surfaces ON/OFF\n.: fill stiff 3d surfacesON/OFF\n5 reset 3d view\n7,8,9,1,2,3: move 3d view\n\nGeometry\nF4: change geometry mode\nFrame mode (shift F1): modify viewpoint\nPointer mode (shift F2): select an object and move it with enter/OK and cursor keys\nOther modes: create an object\nEsc/Back: go to symbolic view where you can create/modify objects with commands, press enter/OK to go back to graphic view");
+	"x,n,t ou tab: etude courbe\nshift-2: info courbe\nshift-3: tangente, pente\nshift-4: normale\nshift-5: cercle osculateur\nshift-7: infos courbe on/off\nhaut/bas/droit/gauche: deplace pointeur ou change point de vue\nalpha-haut/bas/droit/gauche: modifie fenetre\ny^x ou e^x: trace 3d precis\nEsc/Back: quitte ou interrompt le trace 3d en cours\n( et ): modifie le rendu des surfaces raides 3d\n0: surfaces cachees 3d ON/OFF\n.: remplissage surface 3d raide ON/OFF\n5 reset 3d view\n7,8,9,1,2,3: deplacement 3d\n\nGeometrie\nF4: change le mode\nLe mode repere (shift 7) permet de changer le point de vue\nLe mode pointeur (shift 8) permet de bouger un objet et les objets dependants avec enter/OK et les touches de deplacement\nLes autres modes permettent de creer des objets\nEsc/Back: permet de passer en vue symbolique et de creer/modifier des objets par des commandes, taper enter/OK pour revenir en vue graphique\n4,6: modifie la profondeur du clic":
+	"x,n,t or tab: curve study\nshift-2: curve info\nshift-3: tangent, slope\nshift-4: normal\nshift-5: osculating circle\nshift-7: curve infos on/off\nup/down/right/left: move pointer or modify viewpoint\nalpha-up/down/right/left: move window\nEsc/Back: leave or interrupt 3d rendering\ny^x or e^x: precise 3d\n( and ): modify stiff surfaces 3d rendering\n0: hidden 3d surfaces ON/OFF\n.: fill stiff 3d surfacesON/OFF\n5 reset 3d view\n7,8,9,1,2,3: move 3d view\n\nGeometry\nF4: change geometry mode\nFrame mode (shift F1): modify viewpoint\nPointer mode (shift F2): select an object and move it with enter/OK and cursor keys\nOther modes: create an object\nEsc/Back: go to symbolic view where you can create/modify objects with commands, press enter/OK to go back to graphic view");
     int exec=doTextArea(&text,contextptr);
   }
 
@@ -10358,7 +10690,53 @@ namespace xcas {
       }
     } else s="";
     return s;
-  }  
+  }
+
+  void Graph2d::init_tracemode(){
+    if (is3d){
+      tracemode=0;
+      return;
+    }
+    tracemode_mark=0.0;
+    double w=LCD_WIDTH_PX;
+    double h=LCD_HEIGHT_PX-STATUS_AREA_PX;
+    double window_w=window_xmax-window_xmin,window_h=window_ymax-window_ymin;
+    double r=h/w*window_w/window_h;
+    tracemode=(r>0.7 && r<1.4)?7:3;
+    tracemode_set();
+  }
+
+  void Graph2d::curve_infos(){
+    if (!tracemode)
+      init_tracemode();
+    const char *
+      tab[]={
+	     lang==1?"Infos objet (shift-2)":"Object infos (shift-2)",  // 0
+#ifdef NUMWORKS
+	     lang==1?"Quitte mode etude (x,n,t)":"Quit study mode (x,n,t)",
+#else
+	     lang==1?"Quitte mode etude (tab)":"Quit study mode (tab)",
+#endif
+	     lang==1?"Entrer t ou x":"Set t or x", // 1
+	     lang==1?"y=0, racine":"y=0, root",
+	     "Intersection", // 3
+	     "y'=0, extremum",
+	     lang==1?"x'=0 (parametriques)":"x'=0 (parametric)", // 5
+	     "Inflexion",
+	     lang==1?"Marquer la position":"Mark position",
+	     lang==1?"Entrer t ou x, marquer":"Set t or x, mark", // 8
+	     lang==1?"Aire":"Area",
+	     lang==1?"Longueur d'arc":"Arc length", // 10
+	     0};
+    const int s=sizeof(tab)/sizeof(char *);
+    int choix=select_item(tab,lang==1?"Etude courbes":"Curve study",true);
+    if (choix<0 || choix>s)
+      return;
+    if (choix==1)
+      tracemode=0;
+    else 
+      tracemode_set(choix-1);
+  }
 
   int Graph2d::ui(){
     Graph2d & gr=*this;
@@ -10370,9 +10748,9 @@ namespace xcas {
     gr.must_redraw=true;
     for (;;){
 #ifdef NSPIRE_NEWLIB
-      DefineStatusMessage((char*)"+-: zoom, menu: menu, esc: quit", 1, 0, 0);
+      DefineStatusMessage((char*)"shift-1: help, menu: menu, esc: quit", 1, 0, 0);
 #else
-      DefineStatusMessage((char*)"+-: zoom, home: menu, EXIT: quit", 1, 0, 0);
+      DefineStatusMessage((char*)"shift-1: help, home: menu, back: quit", 1, 0, 0);
 #endif
       DisplayStatusArea();
       int saveprec=gr.precision;
@@ -10403,14 +10781,47 @@ namespace xcas {
       }
       int key=-1;
       GetKey(&key);
+      bool alph=alphawasactive(&key);
       if (key==KEY_SHUTDOWN)
 	return key;
       if (key==KEY_CTRL_F1){
 	geohelp(contextptr);
 	continue;
       }
-      if (key==KEY_CTRL_XTT)
-	invert_tracemode();
+      if (key==KEY_CTRL_F2){
+	tracemode_set(-1); // object info
+	continue;
+      }
+      if (key==KEY_CTRL_F3){
+	if (tracemode & 2)
+	  tracemode &= ~2;
+	else
+	  tracemode |= 2;
+	tracemode_set();
+	continue;
+      }
+      if (key==KEY_CTRL_F4){
+	if (tracemode & 4)
+	  tracemode &= ~4;
+	else
+	  tracemode |= 4;
+	tracemode_set();
+	continue;
+      }
+      if (key==KEY_CTRL_F5){
+	if (tracemode & 8)
+	  tracemode &= ~8;
+	else {
+	  tracemode |= 8;
+	  orthonormalize(true);
+	}
+	tracemode_set();
+	continue;
+      }
+      if (key==KEY_CTRL_XTT || key=='\t'){
+	curve_infos();
+	continue;
+      }
       if (!hp && key==KEY_CTRL_F7)
 	invert_tracemode();
       if (hp){
@@ -10491,6 +10902,7 @@ namespace xcas {
 	}
       }
       if (hp && (key==KEY_CTRL_CATALOG || key==KEY_BOOK )){
+	tracemode=0;
 	const char *
 	  tab[]={
 		 lang==1?"Mode repere":"Frame mode", // 0
@@ -10785,6 +11197,11 @@ namespace xcas {
       if (key==KEY_CTRL_MENU || key==KEY_CTRL_F6 ||
 	  (!hp && (key==KEY_CTRL_CATALOG || key==KEY_BOOK))){
 	char menu_xmin[32],menu_xmax[32],menu_ymin[32],menu_ymax[32],menu_zmin[32],menu_zmax[32],menu_depth[32];
+	Menu smallmenu;
+	smallmenu.numitems=22;
+	MenuItem smallmenuitems[smallmenu.numitems];
+	smallmenu.items=smallmenuitems;
+	smallmenu.height=12;
 	for (;;){
 	  string s;
 	  s="xmin "+print_DOUBLE_(gr.window_xmin,contextptr);
@@ -10801,16 +11218,13 @@ namespace xcas {
 	  strcpy(menu_zmax,s.c_str());
 	  s="depth 3d "+print_DOUBLE_(gr.current_depth,contextptr);
 	  strcpy(menu_depth,s.c_str());
-	  Menu smallmenu;
-	  smallmenu.numitems=19;
-	  MenuItem smallmenuitems[smallmenu.numitems];
-	  smallmenu.items=smallmenuitems;
-	  smallmenu.height=12;
 	  //smallmenu.title = "KhiCAS";
 	  smallmenuitems[0].text = (char *) ((lang==1)?"Aide":"Help");
-	  smallmenuitems[1].text = (char*) ((lang==1)?"Courbes: mode trace":"Curves: tracemode");
-	  smallmenuitems[1].type = MENUITEM_CHECKBOX;
-	  smallmenuitems[1].value = gr.tracemode;
+#ifdef NUMWORKS
+	  smallmenuitems[1].text = (char*) ((lang==1)?"Etude courbe (x,n,t)":"Curve study (x,n,t)");
+#else
+	  smallmenuitems[1].text = (char*) ((lang==1)?"Etude courbe (tab)":"Curve study (tab)");
+#endif
 	  smallmenuitems[2].text = (char *) menu_xmin;
 	  smallmenuitems[3].text = (char *) menu_xmax;
 	  smallmenuitems[4].text = (char *) menu_ymin;
@@ -10829,7 +11243,16 @@ namespace xcas {
 	  smallmenuitems[17].text = (char*) ((lang==1)?"Voir axes":"Show axes");
 	  smallmenuitems[17].type = MENUITEM_CHECKBOX;
 	  smallmenuitems[17].value = gr.show_axes;
-	  smallmenuitems[18].text = (char*) ((lang==1)?"Effacer traces geometrie":"Clear geometry traces");
+	  smallmenuitems[18].text = (char*) ((lang==1)?"Voir tangente (F3)":"Show tangent (F3)");
+	  smallmenuitems[18].type = MENUITEM_CHECKBOX;
+	  smallmenuitems[18].value = (gr.tracemode & 2)!=0;
+	  smallmenuitems[19].text = (char*) ((lang==1)?"Voir normale (F4)":"Show normal (F4)");
+	  smallmenuitems[19].type = MENUITEM_CHECKBOX;
+	  smallmenuitems[19].value = (gr.tracemode & 4)!=0;
+	  smallmenuitems[20].text = (char*) ((lang==1)?"Voir cercle (F5)":"Show circle (F5)");
+	  smallmenuitems[20].type = MENUITEM_CHECKBOX;
+	  smallmenuitems[20].value = (gr.tracemode & 8)!=0;
+	  smallmenuitems[21].text = (char*) ((lang==1)?"Effacer traces geometrie":"Clear geometry traces");
 	  drawRectangle(0,180,LCD_WIDTH_PX,60,_BLACK);
 	  int sres = doMenu(&smallmenu);
 	  if (sres == MENU_RETURN_EXIT)
@@ -10842,7 +11265,7 @@ namespace xcas {
 	      // gr.q=quaternion_double(0,0,0); gr.update();
 	    }
 	    if (smallmenu.selection==2)
-	      gr.invert_tracemode();
+	      gr.curve_infos();
 	    if (smallmenu.selection==3){
 	      d=gr.window_xmin;
 	      if (inputdouble(menu_xmin,d,200,contextptr)){
@@ -10930,6 +11353,31 @@ namespace xcas {
 	    if (smallmenu.selection==18)
 	      gr.show_axes=!gr.show_axes;	
 	    if (smallmenu.selection==19){
+	      if (gr.tracemode & 2)
+		gr.tracemode &= ~2;
+	      else
+		gr.tracemode |= 2;
+	      gr.tracemode_set();
+	    }
+	    if (smallmenu.selection==20){
+	      if (gr.tracemode & 4)
+		gr.tracemode &= ~4;
+	      else {
+		gr.tracemode |= 4;
+		gr.orthonormalize();
+	      }
+	      gr.tracemode_set();
+	    }
+	    if (smallmenu.selection==21){
+	      if (gr.tracemode & 8)
+		gr.tracemode &= ~8;
+	      else {
+		gr.tracemode |= 8;
+		gr.orthonormalize();
+	      }
+	      gr.tracemode_set();
+	    }
+	    if (smallmenu.selection==19){
 	      gr.trace_instructions.clear();
 	      update_g();
 	    }
@@ -10988,12 +11436,12 @@ namespace xcas {
 	 gr.precision--;
       }
       if (key==KEY_CTRL_UP){
-	if (tracemode){
-	  ++tracemode_n;
+	if (tracemode && !alph){
+	  --tracemode_n;
 	  tracemode_set();
 	  continue;
 	}
-	if (hp && mode!=255){
+	if (hp && mode!=255 && !alph){
 	  --current_j;
 	  if (current_j<0){
 	    gr.up((gr.window_ymax-gr.window_ymin)/5);
@@ -11003,7 +11451,7 @@ namespace xcas {
 	  update_g();
 	  continue;
 	}
-	if (gr.is3d){
+	if (gr.is3d && !alph){
 	  int curprec=gr.precision;
 	  gr.precision += 2;
 	  if (gr.precision>9) gr.precision=9;
@@ -11030,12 +11478,12 @@ namespace xcas {
 	gr.up((gr.window_ymax-gr.window_ymin)/16);
       }
       if (key==KEY_CTRL_PAGEUP) {
-	if (tracemode){
-	  tracemode_n+=2;
+	if (tracemode && !alph){
+	  tracemode_n-=2;
 	  tracemode_set();
 	  continue;
 	}
-	if (hp && mode!=255){
+	if (hp && mode!=255 && !alph){
 	  current_j-=LCD_HEIGHT_PX/5;;
 	  if (current_j<0){
 	    gr.up((gr.window_ymax-gr.window_ymin)/2);
@@ -11048,12 +11496,12 @@ namespace xcas {
 	gr.up((gr.window_ymax-gr.window_ymin)/4);
       }
       if (key==KEY_CTRL_DOWN) {
-	if (tracemode){
-	  --tracemode_n;
+	if (tracemode && !alph){
+	  ++tracemode_n;
 	  tracemode_set();
 	  continue;
 	}
-	if (hp && mode!=255){
+	if (hp && mode!=255 && !alph){
 	  ++current_j;
 	  if (current_j>=LCD_HEIGHT_PX-24){
 	    gr.down((gr.window_ymax-gr.window_ymin)/5);
@@ -11063,7 +11511,7 @@ namespace xcas {
 	  update_g();
 	  continue;
 	}
-	if (gr.is3d){
+	if (gr.is3d && !alph){
 	  int curprec=gr.precision;
 	  gr.precision += 2;
 	  if (gr.precision>9) gr.precision=9;
@@ -11090,12 +11538,12 @@ namespace xcas {
 	gr.down((gr.window_ymax-gr.window_ymin)/16);
       }
       if (key==KEY_CTRL_PAGEDOWN) {
-	if (tracemode){
-	  tracemode_n-=2;
+	if (tracemode && !alph){
+	  tracemode_n+=2;
 	  tracemode_set();
 	  continue;
 	}
-	if (hp && mode!=255){
+	if (hp && mode!=255 && !alph){
 	  current_j += LCD_HEIGHT_PX/5;
 	  if (current_j>=LCD_HEIGHT_PX-24){
 	    gr.down((gr.window_ymax-gr.window_ymin)/2);
@@ -11108,12 +11556,15 @@ namespace xcas {
 	gr.down((gr.window_ymax-gr.window_ymin)/4);
       }
       if (key==KEY_CTRL_LEFT) {
-	if (tracemode){
-	  --tracemode_i;
+	if (tracemode && !alph){
+	  if (tracemode_i!=int(tracemode_i))
+	    tracemode_i=std::floor(tracemode_i);
+	  else
+	    --tracemode_i;
 	  tracemode_set();
 	  continue;
 	}
-	if (hp && mode!=255){
+	if (hp && mode!=255 && !alph){
 	  --current_i;
 	  if (current_i<0){
 	    gr.left((gr.window_xmax-gr.window_xmin)/5);
@@ -11123,7 +11574,7 @@ namespace xcas {
 	  update_g();
 	  continue;
 	}
-	if (gr.is3d){
+	if (gr.is3d && !alph){
 	  int curprec=gr.precision;
 	  gr.precision += 2;
 	  if (gr.precision>9) gr.precision=9;
@@ -11145,12 +11596,12 @@ namespace xcas {
 	gr.left((gr.window_xmax-gr.window_xmin)/16);
       }
       if (key==KEY_SHIFT_LEFT) {
-	if (tracemode){
+	if (tracemode && !alph){
 	  tracemode_i-=5;
 	  tracemode_set();
 	  continue;
 	}
-	if (hp && mode!=255){
+	if (hp && mode!=255 && !alph){
 	  current_i -= LCD_WIDTH_PX/5;
 	  if (current_i<0){
 	    gr.left((gr.window_xmax-gr.window_xmin)/2);
@@ -11163,12 +11614,15 @@ namespace xcas {
 	gr.left((gr.window_xmax-gr.window_xmin)/4);
       }
       if (key==KEY_CTRL_RIGHT) {
-	if (tracemode){
-	  ++tracemode_i;
+	if (tracemode && !alph){
+	  if (int(tracemode_i)!=tracemode_i)
+	    tracemode_i=std::ceil(tracemode_i);
+	  else
+	    ++tracemode_i;
 	  tracemode_set();
 	  continue;
 	}
-	if (hp && mode!=255){
+	if (hp && mode!=255 && !alph){
 	  ++current_i;
 	  if (current_i>=LCD_WIDTH_PX){
 	    gr.right((gr.window_xmax-gr.window_xmin)/5);
@@ -11178,7 +11632,7 @@ namespace xcas {
 	  update_g();
 	  continue;
 	}
-	if (gr.is3d){
+	if (gr.is3d && !alph){
 	  int curprec=gr.precision;
 	  gr.precision += 2;
 	  if (gr.precision>9) gr.precision=9;
@@ -11200,12 +11654,12 @@ namespace xcas {
 	gr.right((gr.window_xmax-gr.window_xmin)/16);
       }
       if (key==KEY_SHIFT_RIGHT) {
-	if (tracemode){
+	if (tracemode && !alph){
 	  tracemode_i+=5;
 	  tracemode_set();
 	  continue;
 	}
-	if (hp && mode!=255){
+	if (hp && mode!=255 && !alph){
 	  current_i += LCD_WIDTH_PX/5;
 	  if (current_i>=LCD_WIDTH_PX){
 	    gr.right((gr.window_xmax-gr.window_xmin)/2);
@@ -11306,7 +11760,12 @@ namespace xcas {
 #ifdef TURTLETAB
     xcas::Turtle t={tablogo,0,0,1,1,(short) turtle_speed};
 #else
-    xcas::Turtle t={&turtle_stack(),0,0,1,1,(short) turtle_speed};
+    xcas::Turtle t;
+    t.turtleptr=&turtle_stack();
+    t.turtlex=t.turtley=0;
+    t.turtlezoom=1;
+    t.maillage=1;
+    t.speed=(short) turtle_speed;
 #endif
 #ifdef NSPIRE_NEWLIB
     DefineStatusMessage((char*)"+-: zoom, pad: move, esc: quit", 1, 0, 0);
@@ -13478,6 +13937,23 @@ namespace xcas {
     }
     return (0);
   }
+
+#ifdef HP39
+int strncasecmp(const char *s1, const char *s2, size_t n) {
+    if(n <= 0) return 0;
+    while (*s1 != 0 && *s2 != 0) {
+        n--;
+        if (tolower(*s1) != tolower(*s2) || n == 0)
+            break;
+        s1++;
+        s2++;
+    }
+
+    return tolower(*s1) - tolower(*s2);
+}
+
+#endif
+
   char *strcasestr_duplicate(const char *s, const char *find)
   {
     char c;
@@ -15362,6 +15838,10 @@ namespace xcas {
     smallmenuitems[10].text = (char*) ((lang==1)?"Backup, mode examen (e^x)":"Backup, exam mode (e^x)");
 #else
     smallmenuitems[10].text = (char*) ((lang==1)?"Mode examen (e^x)":"Exam mode (e^x)");
+    if (osok==0)
+      smallmenuitems[10].text = (char*) ((lang==1)?"Incompatible mode examen":"Exam mode incompatible");
+    if (osok==-1)
+      smallmenuitems[10].text = (char*) ((lang==1)?"Avertissement mode examen":"Exam mode warning");
 #endif
     smallmenuitems[11].text = (char*) ((lang==1)?"A propos":"About");
     smallmenuitems[14].text = (char*) "Quit";
@@ -15467,12 +15947,20 @@ namespace xcas {
 	  giac::language(lang,contextptr);
 	  break;
 	}
-	if (smallmenu.selection == 11){
+	if (smallmenu.selection==11 && osok==-1){
+	  confirm(lang==1?"Activez une fois le mode examen TI":"Activate one time TI exam mode",lang==1?"pour utiliser ensuite celui de KhiCAS":"to enable KhiCAS exam mode");
+	  continue;
+	}
+	if (smallmenu.selection==11 && osok==0){
+	  confirm(lang==1?"Ce modele n'est pas compatible":"This model is not compatible",lang==1?"avec le mode examen de KhiCAS":"with KhiCAS exam mode");
+	  continue;
+	}
+	if (smallmenu.selection == 11 && osok>0){
 #ifdef NSPIRE_NEWLIB
 	  if (nspire_exam_mode==1
-	      && !is_cx2
+	      // && !is_cx2
 	      ){
-	    if (confirm((lang==1?"Quitter Xcas pour relancer le mode examen":"Leave Xcas to re-enter exam mode"),(lang==1?"!enter OK, esc annul":"enter OK, esc cancel."))!=KEY_CTRL_F1)
+	    if (confirm((lang==1?"Pour relancer le mode examen, il faudra":"To re-enter exam mode, you'll have"),(lang==1?"quitter Xcas. enter OK, esc annul":"to quit Xcas. enter OK, esc cancel."))!=KEY_CTRL_F1)
 	      break;
 	    do_restart(contextptr);
 	    clear_turtle_history(contextptr);
@@ -15489,7 +15977,7 @@ namespace xcas {
 	    break;
 	  }
 	  else {
-	    if (//1 ||
+	    if (osok>0 ||
 		!is_cx2){
 	      if (do_confirm((lang==1)?"Lancer le mode examen avec CAS ?":"Run exam mode with CAS?")){
 		*logptr(contextptr) << (lang==1?"Patientez environ 2 minutes\n":"Please wait about 2 minutes\n");
@@ -17569,7 +18057,11 @@ namespace xcas {
 	// smallmenuitems[2].text = (char*)(isRecording ? "Stop Recording" : "Record Script");
 	while(1) {
 	  // moved inside the loop because lang might change
+#ifdef NUMWORKS
 	  smallmenuitems[0].text = (char*)"Applications (shift ANS)";
+#else
+	  smallmenuitems[0].text = (char*)"Applications (shift doc)";
+#endif
 	  string sess=(lang==1)?"Enregistrer ":"Save ";
 	  sess += session_filename;
 	  smallmenuitems[1].text = (char *) (sess.c_str());
@@ -17803,7 +18295,7 @@ namespace xcas {
 	return CONSOLE_SUCCEEDED;
 #endif
       }
-      if (key==KEY_SHIFT_ANS){ // 3rd party app
+      if (key==KEY_SHIFT_ANS || key==KEY_CTRL_SD){ // 3rd party app
 	int res=khicas_addins_menu(contextptr);
 	if (res==KEY_CTRL_MENU)
 	  return res;
@@ -17987,6 +18479,7 @@ namespace xcas {
   }
 
   const char * console_menu(int key,char* cfg_,int active_app){
+    if (key>=KEY_CTRL_F7 && key<=KEY_CTRL_F14) key-=900;
     char * cfg=cfg_;
     int i, matched = 0;
     const char * ret=0;
@@ -18897,7 +19390,9 @@ namespace xcas {
     if (pythonjs_heap_size>_heap_size-52*1024)
       pythonjs_heap_size=_heap_size-52*1024;
 #endif
+#if defined MICROPY_LIB
     mp_stack_ctrl_init();
+#endif
     //volatile int stackTop;
     //mp_stack_set_top((void *)(&stackTop));
     //mp_stack_set_limit(24*1024);
@@ -18911,6 +19406,38 @@ namespace xcas {
     sheetptr=0;
     shutdown=do_shutdown;
 #ifdef NSPIRE_NEWLIB
+    unsigned osid=0,osidcx52noncasnont=0x1040E4D0;
+    osid=* (unsigned *) 0x10000020;
+    // values
+    // OS 5.2 cxcas 1040f3b0
+    // OS 5.2 cx2 0x1040E4D0
+    // OS 5.2 cx2t 0x1040EAE0
+    // OS 5.3 cx2cas 10417da0
+    // OS 5.3 cx2 10416cc0
+    // OS 5.3 cx2t 10417460
+    osok=osid!=osidcx52noncasnont?1:0;
+    if ((osid & 0xffff0000)==0x10410000){
+      confirm("KhiCAS exammode is incompatible with OS 5.3","Downgrade to 5.2 with backSpire");
+    }
+#if 0
+    if (osok && is_cx2){
+      int N=0x800;
+      long int nand_offset = 5*64*N;
+      long int nand_size = 64*N;
+      char flashdata[N];
+      const char erased_char=(char) 255;
+      int i; 
+      for(i=0; i<nand_size; i+=N) {
+	read_nand(flashdata, N, nand_offset+i, 0, 0, NULL);
+	if (flashdata[0]==erased_char && flashdata[1]==erased_char && flashdata[2]==erased_char && flashdata[3]==erased_char && flashdata[4]==erased_char && flashdata[5]==erased_char && flashdata[6]==erased_char && flashdata[7]==erased_char)
+	  break;
+      }
+      if (i==nand_size){
+	confirm(lang==1?"Activez une fois le mode examen TI":"Activate one time TI exam mode",lang==1?"pour utiliser ensuite celui de KhiCAS":"to enable KhiCAS exam mode");
+	osok=-1;
+      }
+    }
+#endif
     // detect if leds are blinking
     unsigned green=*(unsigned *) 0x90110b04;
     unsigned red=*(unsigned *) 0x90110b0c;
@@ -19640,30 +20167,127 @@ bool matrice2c_complexptr(const giac::matrice &M,c_complex *x){
   return true;
 }
 
-bool c_inv(c_complex * x,int n){
-  giac::matrice M(n);
-  c_complexptr2matrice(x,n,n,M);
-  M=giac::minv(M,giac::context0);
-  return matrice2c_complexptr(M,x);
+
+c_complex operator +(const c_complex & a,const c_complex & b){
+  c_complex c={a.r+b.r,a.i+b.i};
+  return c;
 }
 
-bool c_proot(c_complex * x,int n){
-  giac::matrice M(n);
-  c_complexptr2matrice(x,n,0,M);
-  M=giac::proot(M);
-  return matrice2c_complexptr(M,x);
+c_complex c_complex::operator +=(const c_complex & b){
+  r += b.r;
+  i += b.i;
+  return *this;
 }
 
-bool c_pcoeff(c_complex * x,int n){
-  giac::matrice M(n);
-  c_complexptr2matrice(x,n,0,M);
-  M=giac::pcoeff(M);
-  return matrice2c_complexptr(M,x);
+c_complex c_complex::operator -=(const c_complex & b){
+  r -= b.r;
+  i -= b.i;
+  return *this;
 }
+
+c_complex operator -(const c_complex & a,const c_complex & b){
+  c_complex c={a.r-b.r,a.i-b.i};
+  return c;
+}
+
+c_complex operator -(const c_complex & a,double b){
+  c_complex c={a.r-b,a.i};
+  return c;
+}
+
+c_complex operator -(const c_complex & a){
+  c_complex c={-a.r,-a.i};
+  return c;
+}
+
+c_complex operator /(const c_complex & a,double d){
+  c_complex c={a.r/d,a.i/d};
+  return c;
+}
+
+c_complex operator *(const c_complex & a,double d){
+  c_complex c={a.r*d,a.i*d};
+  return c;
+}
+
+c_complex operator *(double d,const c_complex & a){
+  c_complex c={a.r*d,a.i*d};
+  return c;
+}
+
+c_complex operator *(const c_complex & a,const c_complex & b){
+  c_complex c={a.r*b.r-a.i*b.i,a.r*b.i+a.i*b.r};
+  return c;
+}
+
+  static void fft2( c_complex *A, int n, c_complex *W, c_complex *T ) {  
+    if ( n==1 ) return;
+    // if p is fixed, the code is about 2* faster
+    if (n==4){
+      c_complex w1=W[1];
+      c_complex f0=A[0],f1=A[1],f2=A[2],f3=A[3],f01=(f1-f3)*w1;
+      A[0]=(f0+f1+f2+f3);
+      A[1]=(f0-f2+f01);
+      A[2]=(f0-f1+f2-f3);
+      A[3]=(f0-f2-f01);
+      return;
+    }
+    if (n==2){
+      c_complex f0=A[0],f1=A[1];
+      A[0]=(f0+f1);
+      A[1]=(f0-f1);
+      return;
+    }
+    int i,n2;
+    n2 = n/2;
+    // Step 1 : arithmetic
+    c_complex * Tn2=T+n2,*An2=A+n2;
+    for( i=0; i<n2; ++i ) {
+      c_complex Ai,An2i;
+      Ai=A[i];
+      An2i=An2[i];
+      T[i] = Ai+An2i; // addmod(Ai,An2i,p);
+      Tn2[i] = (Ai-An2i)*W[i]; // submod(Ai,An2i,p); mulmod(t,W[i],p); 
+      i++;
+      Ai=A[i];
+      An2i=An2[i];
+      T[i] = Ai+An2i; // addmod(Ai,An2i,p);
+      Tn2[i] = (Ai-An2i)*W[i]; // submod(Ai,An2i,p); mulmod(t,W[i],p); 
+    }
+    // Step 2 : recursive calls
+    fft2( T,    n2, W+n2, A    );
+    fft2( Tn2, n2, W+n2, A+n2 );
+    // Step 3 : permute
+    for( i=0; i<n2; ++i ) {
+      A[  2*i] = T[i];
+      A[2*i+1] = Tn2[i]; 
+      ++i;
+      A[  2*i] = T[i];
+      A[2*i+1] = Tn2[i]; 
+    }
+    return;
+  }  
+
+  void fft2( c_complex * A, int n, double theta){
+    vector< c_complex > W,T(n);
+    W.reserve(n); 
+    double thetak(theta);
+    for (int N=n/2;N;N/=2,thetak*=2){
+      c_complex ww={1,0};
+      c_complex wk={std::cos(thetak),std::sin(thetak)};
+      for (int i=0;i<N;ww=ww*wk,++i){
+	if (i%64==0){
+	  ww.r=std::cos(i*thetak);
+	  ww.i=std::sin(i*thetak);
+	}
+	W.push_back(ww);
+      }
+    }
+    fft2(A,n,&W.front(),&T.front());
+  }
 
 bool c_fft(c_complex * x,int n,bool inverse){
-#if 1
-  complex<double> * X=(complex<double> *) x;
+  c_complex * X=(c_complex *) x;
   double theta=2*M_PI/n;
   if (!inverse)
     theta=-theta;
@@ -19673,34 +20297,761 @@ bool c_fft(c_complex * x,int n,bool inverse){
       X[i]=X[i]/double(n);
   }
   return true;
-#else
-  giac::matrice M(n);
-  c_complexptr2matrice(x,n,0,M);
-  gen g=inverse?giac::_ifft(M,giac::context0):giac::_fft(M,giac::context0);
-  if (g.type!=_VECT)
-    return false;
-  return matrice2c_complexptr(*g._VECTptr,x);
-#endif
+}
+//inline double absdouble(double x){ return x<0?-x:x;}
+double abs(const c_complex & c){
+  double X=absdouble(c.r),Y=absdouble(c.i);
+  if (X==0 && Y==0) return 0;
+  if (X<Y){
+    X/=Y;
+    return Y*sqrt(1+X*X);
+  }
+  Y/=X;
+  return X*sqrt(1+Y*Y);
 }
 
-bool c_egv(c_complex * x,int n){
-  giac::matrice M(n);
-  c_complexptr2matrice(x,n,n,M);
-  gen g=giac::_egv(M,giac::context0);
-  if (!ckmatrix(g))
+double norm(const c_complex & c){
+  return c.r*c.r+c.i*c.i;
+}
+
+c_complex inv(const c_complex & a){
+  double n=abs(a);
+  c_complex c={a.r/n/n,-a.i/n/n};
+  return c;
+}
+
+bool is_zero(const c_complex & a){
+  return a.r==0 && a.i==0;
+}
+
+bool operator ==(const c_complex & a,const c_complex &b){
+  return a.r==b.r && a.i==b.i;
+}
+
+bool operator !=(const c_complex & a,const c_complex &b){
+  return a.r!=b.r || a.i!=b.i;
+}
+
+typedef vector< vector< c_complex> > cmatrice;
+typedef vector< c_complex> cvecteur;
+
+c_complex cdot(const cvecteur & v,const cvecteur & w){
+  int n=v.size(),m=w.size();
+  if (n>m) n=m;
+  c_complex r={0,0};
+  for (int i=0;i<n;++i)
+    r += v[i]*w[i];
+  return r;
+}
+
+bool cmult(const cmatrice & A,const cmatrice & B,cmatrice &C){
+  int An=A.size(),Bn=B.size();
+  if (!An || !Bn) return false;
+  int Ac=A[0].size(),Bc=B[0].size();
+  for (int i=0;i<An;++i){
+    if (B[i].size()!=Bc)
+      return false;
+  }
+  C.resize(An);
+  for (int i=0;i<An;++i){
+    const cvecteur & Ai=A[i];
+    if (Ai.size()!=Ac)
+      return false;
+    cvecteur & Ci=C[i];
+    Ci.resize(Bc);
+    for (int j=0;j<Bc;++j){
+      c_complex r={0,0};
+      for (int k=0;k<Ac;++k){
+	r += Ai[k]*B[k][j];
+      }
+      Ci[j]=r;
+    }
+  }
+  return true;
+}
+
+// v1=v1+c2*v2 
+void linear_combination(cvecteur & v1,const c_complex & c2,const cvecteur & v2,int cstart,int cend){
+  if (!is_zero(c2)){
+    cvecteur::iterator it1=v1.begin()+cstart,it1end=v1.end();
+    if (cend && cend>=cstart && cend<it1end-v1.begin())
+      it1end=v1.begin()+cend;
+    cvecteur::const_iterator it2=v2.begin()+cstart;
+    for (;it1!=it1end;++it1,++it2)
+      *it1 += c2*(*it2);
+  }
+}
+
+string print(const c_complex & c){
+  char buf[32];
+  sprint_double(buf,c.r);
+  if (c.i==0)
+    return buf;
+  string s="(";
+  s+=buf;
+  s+=',';
+  sprint_double(buf,c.i);
+  s+=buf;
+  s+=')';
+  return s;
+}
+
+string print(const cvecteur & v){
+  string s="[";
+  for (int i=0;i<v.size();++i){
+    s+=print(v[i]);
+    s+=',';
+  }
+  s+=']';
+  return s;
+}
+
+string print(const cmatrice & v){
+  string s="[";
+  for (int i=0;i<v.size();++i){
+    s+=print(v[i]);
+    s+=',';
+  }
+  s+=']';
+  return s;
+}
+
+void crref(cmatrice & N,cvecteur & pivots,vector<int> & permutation,vector<int> & maxrankcols,c_complex & idet,int l, int lmax, int c,int cmax,int fullreduction,double eps,int rref_or_det_or_lu){
+  bool use_cstart=!c;
+  bool inverting=fullreduction==2;
+  int linit=l;//,previous_l=l;
+  // Reduction
+  c_complex pivot,temp;
+  // cvecteur vtemp;
+  int pivotline,pivotcol;
+  idet.r=1; idet.i=0;
+  pivots.clear();
+  pivots.reserve(cmax-c);
+  permutation.clear();
+  maxrankcols.clear();
+  for (int i=0;i<lmax;++i)
+    permutation.push_back(i);
+  bool noswap=true;
+  double epspivot=(eps<1e-13)?1e-13:eps;
+  for (;(l<lmax) && (c<cmax);){
+    pivot=N[l][c];
+    if (abs(pivot)<epspivot)
+      N[l][c].r=N[l][c].i=pivot.r=pivot.i=0;
+    if (rref_or_det_or_lu==3 && is_zero(pivot)){
+      idet.r=idet.i=0;
+      return;
+    }
+    if ( rref_or_det_or_lu==1 && l==lmax-1 ){
+      idet = (idet * pivot);
+      break;
+    }
+    pivotline=l;
+    pivotcol=c;
+    noswap=false;
+    // scan N current column for the best pivot available
+    for (int ltemp=l+1;ltemp<lmax;++ltemp){
+      temp=N[ltemp][c];
+      if (abs(temp)<epspivot)
+	temp.r=temp.i=N[ltemp][c].r=N[ltemp][c].i=0;
+      if (abs(temp)>abs(pivot)){
+	pivot=temp;
+	pivotline=ltemp;
+      }
+    }
+    if (!is_zero(pivot)){
+      epspivot=eps*abs(pivot);
+      maxrankcols.push_back(c);
+      if (l!=pivotline){
+	swap(N[l],N[pivotline]);
+	swap(permutation[l],permutation[pivotline]);
+	pivotline=l;
+	idet = -idet;
+      }
+      // save pivot for annulation test purposes
+      if (rref_or_det_or_lu!=1)
+	pivots.push_back(pivot);
+      // invert pivot 
+      temp=inv(pivot);
+      // multiply det
+      idet = idet * pivot ;
+      if (fullreduction || rref_or_det_or_lu<2){ // not LU decomp
+	cvecteur::iterator it=N[pivotline].begin(),itend=N[pivotline].end();
+	c_complex invpivot=inv(pivot);
+	for (;it!=itend;++it){
+	  *it = *it*invpivot;
+	}
+      }
+      // if there are 0 at the end, ignore them in linear combination
+      int effcmax=cmax-1;
+      const cvecteur & Npiv=N[pivotline];
+      for (;effcmax>=c;--effcmax){
+	if (!is_zero(Npiv[effcmax]))
+	  break;
+      }
+      ++effcmax;
+      if (fullreduction && inverting && noswap)
+	effcmax=giacmax(effcmax,c+1+lmax);
+      // make the reduction
+      if (fullreduction){
+	for (int ltemp=linit;ltemp<lmax;++ltemp){
+	  if (ltemp==l)
+	    continue;
+	  linear_combination(N[ltemp],-N[ltemp][pivotcol],N[l],(use_cstart?c:cmax),effcmax);
+	}
+      }
+      else {
+	for (int ltemp=l+1;ltemp<lmax;++ltemp){
+	  if (rref_or_det_or_lu>=2) // LU decomp
+	    N[ltemp][pivotcol] =  N[ltemp][pivotcol]*temp;
+	  linear_combination(N[ltemp],-N[ltemp][pivotcol],N[l],(rref_or_det_or_lu>0)?(c+1):(use_cstart?c:cmax),effcmax);
+	}
+      } // end else
+      // increment column number 
+      ++c;
+      // increment line number since reduction has been done
+      ++l;	  
+    } // end if (!is_zero(pivot)
+    else { // if pivot is 0 increment col
+      idet.r = idet.i=0;
+      if (rref_or_det_or_lu==1)
+	return;
+      c++;
+    }
+  }
+}
+
+void c_complextab2cmatrice(c_complex * x,int n,int m,cmatrice & M){
+  M.resize(n);
+  for (int i=0;i<n;++i){
+    M[i].resize(m);
+    cvecteur & v=M[i];
+    for (int j=0;j<m;++j){
+      v[j]=*x; ++x;
+    }
+  }
+}
+
+void cmatrice2c_complextab(const cmatrice &M,c_complex * x){
+  int n=M.size();
+  for (int i=0;i<n;++i){
+    const cvecteur & v=M[i];
+    int m=v.size();
+    for (int j=0;j<m;++j){
+      *x=v[j];
+      ++x;
+    }
+  }
+}
+
+void c_complextab2cvecteur(c_complex * x,int n,cvecteur & v){
+  v.resize(n);
+  for (int j=0;j<n;++j){
+    v[j]=*x; ++x;
+  }
+}
+
+void cvecteur2c_complextab(const cvecteur &v,c_complex * x){
+  int m=v.size();
+  for (int j=0;j<m;++j){
+    *x=v[j];
+    ++x;
+  }
+}
+
+// add identity matrix, modifies arref in place
+void add_identity(cmatrice & arref){
+  int s=int(arref.size());
+  for (int i=0;i<s;++i){
+    cvecteur &v=arref[i];
+    v.reserve(2*s);
+    for (int j=0;j<s;++j){
+      c_complex c={i==j?1.0:0.0,0};
+      v.push_back(c);
+    }
+  }
+}
+
+void cidn(cmatrice & m){
+  int s=int(m.size());
+  for (int i=0;i<s;++i){
+    cvecteur &v=m[i];
+    v.clear();
+    for (int j=0;j<s;++j){
+      c_complex c={i==j?1.0:0.0,0};
+      v.push_back(c);
+    }
+  }
+}
+
+bool remove_identity(cmatrice & res){
+  int s=int(res.size());
+  // "shrink" res
+  for (int i=0;i<s;++i){
+    cvecteur & v = res[i];
+    if (is_zero(v[i]))
+      return false;
+    c_complex p=inv(v[i]);
+    cvecteur d(s);
+    for (int j=0;j<s;++j)
+      d[j]=p*v[s+j];
+    res[i].swap(d);
+  }
+  return true;
+}
+
+cmatrice companion(const cvecteur & w){
+  cvecteur v(w);
+  int s=int(v.size())-1;
+  if (s<=0)
+    return cmatrice(0);
+  c_complex v0=inv(v[0]);
+  cmatrice m;
+  m.reserve(s);
+  for (int i=0;i<s;++i){
+    cvecteur w(s);
+    w[s-1]=-v0*v[s-i];
+    if (i>0)
+      w[i-1].r=1;
+    m.push_back(w);
+  }
+  return m;
+}
+
+bool cinv(cmatrice &M){
+  int n=M.size();
+  add_identity(M);
+  cvecteur pivots; vector<int> perm,maxrankcols; c_complex idet;
+  crref(M,pivots,perm,maxrankcols,idet,0,n,0,2*n,2,1e-13,0);
+  if (abs(idet)<1e-13)
     return false;
-  return matrice2c_complexptr(*g._VECTptr,x);
+  remove_identity(M);
+  return true;
+}
+
+c_complex sqrt(const c_complex & c){
+  double r=c.r,i=c.i;
+  if (c.i==0) {
+    if (c.r<0){
+      c_complex res={0,sqrt(-c.r)}; return res;      
+    }
+    c_complex res={sqrt(c.r),0}; return res;
+  }
+  double rho=abs(c);
+  double rrho=r<0?i*i/(rho-r):(rho+r); // accuracy if r<0
+  double sqrtr=sqrt(rrho/2);
+  double sqrti=i*sqrtr/rrho;
+  c_complex res={sqrtr,sqrti};
+  return res;
+}
+
+c_complex conj(const c_complex & c){
+  c_complex C={c.r,-c.i};
+  return C;
+}
+
+double real(const c_complex &c){
+  return c.r;
+}
+
+double imag(const c_complex &c){
+  return c.i;
+}
+
+bool ctrn(const cmatrice & M){
+  int n=M.size();
+  if (!n) return false;
+  int c=M[0].size();
+  for (int i=0;i<n;++i)
+    if (M[i].size()!=c)
+      return false;
+  cmatrice T(c);
+  for (int i=0;i<c;++i){
+    cvecteur &Ti=T[i];
+    Ti.resize(n);
+    for (int j=0;j<n;++j){
+      Ti[j]=conj(M[j][i]);
+    }
+  }
+  return true;
+}
+
+  // conj(a)*A+conj(c)*C->C
+  // c*A-a*C->A
+  void bi_linear_combination( c_complex  a,vector< c_complex > & A, c_complex  c,vector< c_complex > & C,int cstart,int cend){
+    c_complex  * Aptr=&A.front()+cstart;
+    c_complex  * Cptr=&C.front()+cstart,* Cend=Cptr+(cend-cstart);
+    c_complex ac=conj(a),cc=conj(c);
+    for (;Cptr!=Cend;++Aptr,++Cptr){
+      c_complex  tmp=c*(*Aptr)-a*(*Cptr);
+      *Cptr=ac*(*Aptr)+cc*(*Cptr);
+      *Aptr=tmp;
+    }
+  }
+
+  void hessenberg_ortho(cmatrice & H,cmatrice & P,int firstrow,int n,bool compute_P,int already_zero){
+    int nH=int(H.size());
+    if (n<0 || n>nH) 
+      n=nH;
+    if (firstrow<0 || firstrow>n)
+      firstrow=0;
+    c_complex  t,u,tc,uc;
+    double norme;
+    for (int m=firstrow;m<n-2;++m){
+      // if initial Hessenberg check for a non zero coeff in the column m below ligne m+1
+      int i=m+1;
+      int nend=n;
+      if (already_zero){
+	if (i+already_zero<n)
+	  nend=i+already_zero;
+      }
+      else {
+	double pivot=0;
+	int pivotline=0;
+	for (;i<nend;++i){
+	  double t=abs(H[i][m]);
+	  if (t>pivot){
+	    pivotline=i;
+	    pivot=t;
+	  }
+	}
+	if (pivot==0)
+	  continue;
+	i=pivotline;
+	// exchange line and columns
+	if (i>m+1){
+	  swap(H[i],H[m+1]);
+	  if (compute_P)
+	    swap(P[i],P[m+1]);
+	  for (int j=0;j<n;++j){
+	    vector< c_complex > & Hj=H[j];
+#ifdef VISUALC
+	    c_complex cc=Hj[i];
+	    Hj[i]=Hj[m+1];
+	    Hj[m+1]=cc;
+#else
+	    swap< c_complex >(Hj[i],Hj[m+1]);
+#endif
+	  }
+	}
+      }
+      // now coeff at line m+1 column m is H[m+1][m]=t!=0
+      for (i=m+2;i<nend;++i){
+	u=H[i][m];
+	if (is_zero(u))
+	  continue;
+	// line operation
+	t=H[m+1][m];
+	norme=std::sqrt(norm(u)+norm(t));
+	u=u/norme; t=t/norme;
+	uc=conj(u); tc=conj(t);
+	// H[m+1]=uc*H[i]+tc*H[m+1] and H[i]=t*H[i]-u*H[m+1];
+	bi_linear_combination(u,H[i],t,H[m+1],m,nH);
+	// column operation:
+	int nstop=already_zero?nend+already_zero-1:nH;
+	if (nstop>nH)
+	  nstop=nH;
+	cmatrice::iterator Hjptr=H.begin(),Hjend=Hjptr+nstop;
+	for (;Hjptr!=Hjend;++Hjptr){
+	  c_complex  *Hj=&Hjptr->front();
+	  c_complex  Hjm=Hj[m+1],Hji=Hj[i];
+	  Hj[i]=-uc*Hjm+tc*Hji;
+	  Hj[m+1]=t*Hjm+u*Hji;
+	}
+	if (compute_P){
+	  bi_linear_combination(u,P[i],t,P[m+1],0,nH);
+	}
+      } // for i=m+2...
+    } // for int m=firstrow ...
+  }
+
+  // a*A+c*C->A
+  // c*A-a*C->C
+  void bi_linear_combination(double a,vector< c_complex > & A,c_complex c,vector< c_complex > & C){
+    c_complex * Aptr=&A.front();
+    c_complex * Cptr=&C.front(),* Cend=Cptr+C.size();
+    c_complex cc=conj(c);
+    for (;Cptr!=Cend;++Aptr,++Cptr){
+      c_complex tmp=a*(*Aptr)+cc*(*Cptr);
+      *Cptr=c*(*Aptr)-a*(*Cptr);
+      *Aptr=tmp;
+    }
+  }
+
+  void francis_iterate1(cmatrice & H,int n1,int n2,cmatrice & P,double eps,bool compute_P,c_complex l1,bool finish){
+    int n_orig=int(H.size());
+    c_complex x,y,yc;
+    if (finish){
+      // [[a,b],[c,d]] -> [b,l1-a] or [l1-d,c] as first eigenvector
+      c_complex a=H[n2-2][n2-2],b=H[n2-2][n2-1],c=H[n2-1][n2-2],d=H[n2-1][n2-1];
+      c_complex l1a=l1-a,l1d=l1-d;
+      if (abs(l1a)>abs(l1d)){
+	x=b; y=l1a;
+      }
+      else {
+	x=l1d; y=c;
+      }
+    }
+    else {
+      x=H[n1][n1]-l1,y=H[n1+1][n1];
+      if (abs(x)<eps && abs(y-1.0)<eps){
+	x.r = double(rand())/RAND_MAX;
+	x.i=0;
+      }
+    }
+    // make x real
+    double xr=real(x),xi=imag(x),yr=real(y),yi=imag(y),X;
+    X = std::sqrt(xr*xr+xi*xi);
+    if (X!=0){
+      // gen xy = gen(xr/x,-xi/x); y=y*xy;
+      y.r=(yr*xr+yi*xi)/X; y.i=(yi*xr-yr*xi)/X; 
+      yr=real(y); yi=imag(y);
+    }
+    double xy=std::sqrt(X*X+yr*yr+yi*yi);
+    // normalize eigenvector
+    X = X/xy; y = y/xy;	yc=conj(y);
+    // compute reflection matrix such that Q*[1,0]=[x,y]
+    // hence column 1 is [x,y] and column2 is [conj(y),-x]
+    // apply Q on H and P: line operations on H and P
+    // c_complex c11=x, c12=conj(y,contextptr),
+    //                 c21=y, c22=-x;
+    // apply Q on H and P: line operations on H and P
+    bi_linear_combination(X,H[n1],y,H[n1+1]);
+    if (compute_P)
+      bi_linear_combination(X,P[n1],y,P[n1+1]);
+    // now columns operations on H (not on P)
+    for (int j=0;j<n_orig;++j){
+      vector< c_complex > & Hj=H[j];
+      c_complex & Hjm1=Hj[n1];
+      c_complex & Hjm2=Hj[n1+1];
+      c_complex tmp1=Hjm1*X+Hjm2*y; // tmp1=Hjm1*c11+Hjm2*c21;
+      Hjm2=Hjm1*yc-Hjm2*X; // tmp2=Hjm1*c12+Hjm2*c22;
+      Hjm1=tmp1;
+    }
+    hessenberg_ortho(H,P,n1,n2,compute_P,2); 
+  }
+
+  bool in_francis_schur(cmatrice & H,int n1,int n2,cmatrice & P,int maxiter,double eps,bool compute_P,cmatrice & Haux,bool only_one);
+
+  void francis_iterate2(cmatrice & H,int n1,int n2,cmatrice & P,double eps,bool compute_P,cmatrice & Haux,bool only_one){
+    // int n_orig(H.size());
+    // now H is proper hessenberg (indices n1 to n2-1)
+    c_complex s=H[n2-1][n2-1]; 
+    double ok=abs(H[n2-1][n2-2])/abs(H[n2-1][n2-1]);
+    if (n2-n1==2 ||(ok>1e-1 && n2-n1>2 && abs(H[n2-2][n2-3])<1e-2*abs(H[n2-2][n2-2]))){
+      c_complex a=H[n2-2][n2-2],b=H[n2-2][n2-1],c=H[n2-1][n2-2],d=H[n2-1][n2-1];
+      c_complex delta=a*a-2*a*d+d*d+4*b*c;
+      delta=sqrt(delta);
+      c_complex l1=(a+d+delta)/2.0;
+      // c_complex l2=(a+d-delta)/2.0;
+      s=l1;
+    }
+    francis_iterate1(H,n1,n2,P,eps,compute_P,s,false);
+  }
+
+  // EIGENVALUES 
+  bool eigenval2(cmatrice & H,int n2,c_complex & l1, c_complex & l2){
+    c_complex a=H[n2-2][n2-2],b=H[n2-2][n2-1],c=H[n2-1][n2-2],d=H[n2-1][n2-1];
+    c_complex delta=a*a-2*a*d+d*d+4*b*c;
+    delta=sqrt(delta);
+    l1=(a+d+delta)/2; 
+    l2=(a+d-delta)/2; 
+    return true;
+  }
+
+  bool in_francis_schur(cmatrice & H,int n1,int n2,cmatrice & P,int maxiter,double eps,bool compute_P,cmatrice & Haux,bool only_one){
+    if (n2-n1<=1)
+      return true; // nothing to do
+    if (n2-n1==2){ // 2x2 submatrix, we know how to diagonalize
+      c_complex l1,l2;
+      if (eigenval2(H,n2,l1,l2)){
+	francis_iterate1(H,n1,n2,P,eps,compute_P,l1,true);
+      }
+      return true;
+    }
+    for (int niter=0;n2-n1>1 && niter<maxiter;niter++){
+      //xcas::dConsolePut(("niter "+print_INT_(niter)+" "+print(H)).c_str()); xcas::Console_NewLine(xcas::LINE_TYPE_OUTPUT,1);
+      // check if one subdiagonal element is sufficiently small, if so 
+      // we can increase n1 or decrease n2 or split
+      double ratio,coeff=1;
+      if (niter>maxiter-3)
+	coeff=100;
+      for (int i=n2-2;i>=n1;--i){
+	ratio=abs(H[i+1][i])/abs(H[i][i]);
+	if (ratio<coeff*eps){ 
+	  // do a final iteration if i==n2-2 or n2-3? does not improve much precision
+	  // if (i>=n2-3) francis_iterate2(H,n1,n2,P,eps,true,complex_schur,compute_P,v1,v2);
+	  // submatrices n1..i and i+1..n2-1
+	  if (only_one && n2-(i+1)<=2)
+	    return true;
+	  if (!only_one && !in_francis_schur(H,n1,i+1,P,maxiter,eps,compute_P,Haux,only_one)){
+	    in_francis_schur(H,i+1,n2,P,maxiter,eps,compute_P,Haux,only_one);
+	    return false;
+	  }
+	  return in_francis_schur(H,i+1,n2,P,maxiter,eps,compute_P,Haux,only_one);
+	}
+      }
+      francis_iterate2(H,n1,n2,P,eps,compute_P,Haux,only_one);
+    } // end for loop on niter
+    return false;
+  }
+
+  // Francis algorithm on submatrix rows and columns n1..n2-1
+  // Invariant: trn(P)*H*P=orig matrix, complex_schur not used for giac_double coeffs
+  bool francis_schur(cmatrice & H,int n1,int n2,cmatrice & P,int maxiter,double eps,bool is_hessenberg,bool compute_P){
+    int n_orig=int(H.size());//,nitershift0=0;
+    if (!is_hessenberg){
+      hessenberg_ortho(H,P,0,n_orig,compute_P,0); // insure Hessenberg form (on the whole matrix)
+    }
+    cmatrice Haux(n2/2);
+    return in_francis_schur(H,n1,n2,P,maxiter,eps,compute_P,Haux,false);
+  }
+
+bool schur_eigenvalues(cmatrice &d,double eps){
+  int dim=d.size();
+    bool ans=true;
+    for (int i=0;i<dim;++i){
+      cvecteur & di= d[i];
+      for (int j=0;j<dim;++j){
+	if (j==i) continue;
+	if (ans && j==i-1 && abs(di[j])/abs(di[j+1])>eps){
+	  // *logptr(contextptr) << gettext("Low accuracy for Schur row ") << j << " " << d[i] << '\n';
+	  ans=false;
+	}
+	di[j].r=di[j].i=0;
+      }
+    }
+    return ans;
+}
+
+  // input trn(p)*d*p=original matrix, d upper triangular
+  // output p*d*inv(p)=original matrix, d diagonal
+  bool schur_eigenvectors(cmatrice &p,cmatrice & d,double eps){
+    int dim=int(p.size());
+    cmatrice m(dim);
+    cidn(m);
+    // columns of m are the vector of the basis of the Schur decomposition
+    // in terms of the eigenvector
+    for (int k=1;k<dim;++k){
+      // compute column k of m
+      for (int j=0;j<k;++j){
+	c_complex tmp={0,0};
+	for (int i=0;i<k;++i){
+	  tmp += d[i][k]*m[j][i];
+	}
+	if (!is_zero(tmp)) 
+	  tmp = tmp*inv(d[j][j]-d[k][k]);
+	m[j][k]=tmp;
+      }
+    }
+    if (!cinv(m))
+      return false;
+    ctrn(p);
+    cmatrice pm;
+    cmult(p,m,pm);
+    swap(p,pm);
+    // set d to its diagonal
+    return schur_eigenvalues(d,eps);
+  }
+
+bool c_pcoeff(c_complex * x,int n){
+  c_complex tab[n+1];
+  tab[0].r=1; tab[0].i=0; // init tab to polynomial 1
+  for (int i=0;i<n;++i){
+    // tab:=tab*(X-x[i]): leading coeff unchanged
+    tab[i+1].r=tab[i+1].i=0;
+    c_complex & xi=x[i];
+    for (int j=i;j>=0;--j){
+      tab[j+1] -= tab[j]*xi;
+    }
+  }
+  // copy result in x
+  for (int i=0;i<=n;++i)
+    x[i]=tab[i];
+  return true;
+}
+
+#if 1
+bool c_rref(c_complex * x,int n,int m){
+  cmatrice M;
+  c_complextab2cmatrice(x,n,m,M);
+  cvecteur pivots; vector<int> perm,maxrankcols; c_complex idet;
+  crref(M,pivots,perm,maxrankcols,idet,0,n,0,m,1,1e-13,0);
+  cmatrice2c_complextab(M,x);
+  return true;
+}
+
+c_complex c_det(c_complex *x,int n){
+  cmatrice M;
+  c_complextab2cmatrice(x,n,n,M);
+  cvecteur pivots; vector<int> perm,maxrankcols; c_complex idet;
+  crref(M,pivots,perm,maxrankcols,idet,0,n,0,n,0,1e-13,1);
+  return idet;
+}
+
+bool c_inv(c_complex * x,int n){
+  cmatrice M;
+  c_complextab2cmatrice(x,n,n,M);
+  if (!cinv(M))
+    return false;
+  cmatrice2c_complextab(M,x);
+  return true;
 }
 
 bool c_eig(c_complex * x,c_complex * d,int n){
-  giac::matrice M(n);
-  c_complexptr2matrice(x,n,n,M);
-  gen g=giac::_jordan(M,giac::context0);
-  if (g.type!=_VECT || g._VECTptr->size()!=2 || !ckmatrix(g[0]) || !ckmatrix(g[1]))
+  cmatrice H;
+  c_complextab2cmatrice(x,n,n,H);
+  // load identity
+  cmatrice P(n); c_complex z={0,0};
+  for (int i=0;i<n;++i){
+    P[i]=vector<c_complex>(n,z);
+    P[i][i].r=1;
+  }
+  double eps=1e-11;
+  if (!francis_schur(H,0,n,P,100,eps,false,true))
     return false;
-  return matrice2c_complexptr(*g[0]._VECTptr,x) && matrice2c_complexptr(*g[1]._VECTptr,d);
+  if (!schur_eigenvectors(P,H,eps))
+    return false;
+  cmatrice2c_complextab(H,d);
+  cmatrice2c_complextab(P,x);  
+  return true;
 }
 
+bool c_egv(c_complex * x,int n){
+  cmatrice H;
+  c_complextab2cmatrice(x,n,n,H);
+  cmatrice P(n); 
+  double eps=1e-11;
+  if (!francis_schur(H,0,n,P,100,eps,false,false))
+    return false;
+  if (!schur_eigenvalues(H,eps))
+    return false;
+  cmatrice2c_complextab(H,x);
+  return true;
+}
+
+bool c_proot(c_complex * x,int n){
+  cvecteur v;
+  c_complextab2cvecteur(x,n,v);
+  cmatrice H(companion(v));
+  n--; // size -> degree
+  cmatrice P(n); 
+  double eps=1e-11;
+  bool dbg=false;
+  if (dbg) xcas::dConsolePut(print(v).c_str()); 	xcas::Console_NewLine(xcas::LINE_TYPE_OUTPUT,1);
+  if (!francis_schur(H,0,n,P,100,eps,true,false)) // companion is Hessenberg
+    return false;
+  if (dbg) xcas::dConsolePut(print(H).c_str()); 	xcas::Console_NewLine(xcas::LINE_TYPE_OUTPUT,1);
+  if (!schur_eigenvalues(H,eps))
+    return false;
+  if (dbg) xcas::dConsolePut(print(H).c_str()); 	xcas::Console_NewLine(xcas::LINE_TYPE_OUTPUT,1);
+  // copy diag of H in x
+  for (int i=0;i<n;++i,++x){
+    *x=H[i][i];
+  }
+  return true;
+}
+
+#else
 bool c_rref(c_complex * x,int n,int m){
   giac::matrice M(n);
   c_complexptr2matrice(x,n,m,M);
@@ -19718,94 +21069,239 @@ c_complex c_det(c_complex *x,int n){
   return gen2c_complex(g);
 }
 
+bool c_inv(c_complex * x,int n){
+  giac::matrice M(n);
+  c_complexptr2matrice(x,n,n,M);
+  M=giac::minv(M,giac::context0);
+  return matrice2c_complexptr(M,x);
+}
+
+bool c_eig(c_complex * x,c_complex * d,int n){
+  giac::matrice M(n);
+  c_complexptr2matrice(x,n,n,M);
+  gen g=giac::_jordan(M,giac::context0);
+  if (g.type!=_VECT || g._VECTptr->size()!=2 || !ckmatrix(g[0]) || !ckmatrix(g[1]))
+    return false;
+  return matrice2c_complexptr(*g[0]._VECTptr,x) && matrice2c_complexptr(*g[1]._VECTptr,d);
+}
+
+bool c_egv(c_complex * x,int n){
+  giac::matrice M(n);
+  c_complexptr2matrice(x,n,n,M);
+  gen g=giac::_egv(M,giac::context0);
+  if (!ckmatrix(g))
+    return false;
+  return matrice2c_complexptr(*g._VECTptr,x);
+}
+
+bool c_proot(c_complex * x,int n){
+  giac::matrice M(n);
+  c_complexptr2matrice(x,n,0,M);
+  M=giac::proot(M);
+  return matrice2c_complexptr(M,x);
+}
+
+/*
+bool c_pcoeff(c_complex * x,int n){
+  giac::matrice M(n);
+  c_complexptr2matrice(x,n,0,M);
+  M=giac::pcoeff(M);
+  return matrice2c_complexptr(M,x);
+}
+*/
+
+#endif
+
 void c_sprint_double(char * s,double d){
   giac::sprint_double(s,d);
 }
 
+static void c_update_turtle_state(bool clrstring){
+#if defined NUMWORKS && defined DEVICE
+  if (!ck_turtle_size()){
+    ctrl_c=true; interrupted=true;
+    return;
+  }
+#endif
+  if (clrstring)
+    (*turtleptr).s=-1;
+  (*turtleptr).theta = (*turtleptr).theta - floor((*turtleptr).theta/360)*360;
+  if (!turtle_stack().empty()){
+    logo_turtle & t=turtle_stack().back();
+    if (t.equal_except_nomark(*turtleptr)){
+      t.theta=turtleptr->theta;
+      t.mark=turtleptr->mark;
+      t.visible=turtleptr->visible;
+      t.color=turtleptr->color;
+    }
+    else
+      turtle_stack().push_back((*turtleptr));
+  }
+  else
+    turtle_stack().push_back((*turtleptr));    
+}
+
+void c_turtle_clear(int clrpos){
+  turtle_stack().clear();
+  if (clrpos) (*turtleptr) = logo_turtle();
+  c_update_turtle_state(true);
+}
+
 void c_turtle_forward(double d){
-  context * cascontextptr=(context *)caseval("caseval contextptr");
-  //const context * contextptr=caseval_context();
-  giac::_avance(d,cascontextptr);
+  (*turtleptr).x += d * std::cos((*turtleptr).theta*deg2rad_d);
+  (*turtleptr).y += d * std::sin((*turtleptr).theta*deg2rad_d) ;
+  (*turtleptr).radius = 0;
+  c_update_turtle_state(true);
   py_ck_ctrl_c();
 }
 
 void c_turtle_left(double d){
-  context * cascontextptr=(context *)caseval("caseval contextptr");
-  giac::_tourne_gauche(d,cascontextptr);
+  (*turtleptr).theta += d;
+  (*turtleptr).radius = 0;
+  c_update_turtle_state(true);
   py_ck_ctrl_c();
 }
 
 void c_turtle_up(int i){
-  context * cascontextptr=(context *)caseval("caseval contextptr");
   if (i)
-    giac::_leve_crayon(0,cascontextptr);
+    (*turtleptr).mark = false;
   else
-    giac::_baisse_crayon(0,cascontextptr);
+    (*turtleptr).mark = true;
+  c_update_turtle_state(true);
   py_ck_ctrl_c();
 }
 
 void c_turtle_goto(double x,double y){
-  context * cascontextptr=(context *)caseval("caseval contextptr");
-  giac::_position(makesequence(x,y),cascontextptr);
+  (*turtleptr).x=x;
+  (*turtleptr).y=y;
+  (*turtleptr).radius = 0;
+  c_update_turtle_state(true);
   py_ck_ctrl_c();
 }
 
 void c_turtle_cap(double x){
-  context * cascontextptr=(context *)caseval("caseval contextptr");
-  giac::_cap(x,cascontextptr);
+  (*turtleptr).theta=x;
+  (*turtleptr).radius = 0;
+  c_update_turtle_state(true);
   py_ck_ctrl_c();
 }
 
-void c_turtle_crayon(int i){
-  context * cascontextptr=(context *)caseval("caseval contextptr");
-  giac::_crayon(i,cascontextptr);
-  py_ck_ctrl_c();
+int c_turtle_getcap(){
+  return (*turtleptr).theta;
 }
 
-void c_turtle_rond(int x,int y,int z){
-  context * cascontextptr=(context *)caseval("caseval contextptr");
-  giac::_rond(makesequence(x,y,z),cascontextptr);
-  py_ck_ctrl_c();
-}
-
-void c_turtle_disque(int x,int y,int z,int centre){
-  context * cascontextptr=(context *)caseval("caseval contextptr");
-  if (centre)
-    giac::_disque_centre(makesequence(x,y,z),cascontextptr);
+int c_turtle_crayon(int i){
+  if (i==-128)
+    return (*turtleptr).turtle_width;
+  if (i<0)
+    (*turtleptr).turtle_width=-i;
   else
-    giac::_disque(makesequence(x,y,z),cascontextptr);
+    (*turtleptr).color=i;
+  c_update_turtle_state(true);
+  py_ck_ctrl_c();
+  return 0;
+}
+
+int c_find_radius(int & r,int & t1,int & t2,int &direct){
+  direct=r>=0;
+  if (r<0) r=-r;
+  if (r>512) r=512;
+  return r | (t1 << 9) | (t2 << 18 );
+}
+
+void c_turtle_rond(int r,int t1,int t2){
+  int direct;
+  int radius=c_find_radius(r,t1,t2,direct);
+  (*turtleptr).radius=radius;
+  (*turtleptr).direct=direct;
+  while (t1<0)
+    t1 += 360;
+  while (t2<0)
+    t2 += 360;
+  c_turtle_move(r,t2);
+  c_update_turtle_state(true);
   py_ck_ctrl_c();
 }
+
+void c_turtle_disque(int r,int t1,int t2,int centre){
+  int direct,radius=c_find_radius(r,t1,t2,direct);
+  if (centre){
+    // saute(r); tourne_gauche(direct?90:-90)
+  }
+  (*turtleptr).radius=radius;
+  (*turtleptr).direct=direct;
+  c_turtle_move(r,t2);
+  (*turtleptr).radius += 1 << 27;
+  c_update_turtle_state(true);
+  if (centre){
+    // _tourne_droite(direct?90:-90,contextptr); _saute(-r,contextptr);
+  }
+  py_ck_ctrl_c();
+}
+int turtle_fillbegin=-1,turtle_fillcolor=_BLACK;
 
 void c_turtle_fill(int i){
-  gen arg(vecteur(0));
-  if (i==0) 
-    arg.subtype=_SEQ__VECT;
-  context * cascontextptr=(context *)caseval("caseval contextptr");
-  giac::_polygone_rempli(arg,cascontextptr);
+  if (i==1){
+    turtle_fillbegin=turtle_stack().size();
+    return;
+  }
+  int c=turtleptr->color;
+  c_turtle_crayon(turtle_fillcolor);
+  int n=turtle_stack().size()- turtle_fillbegin;
+  turtle_fillbegin=-1;
+  turtleptr->radius=-absint(n);
+  c_update_turtle_state(true);
+  if (turtle_fillcolor>=0){
+    turtleptr->radius=0;
+    c_turtle_crayon(c);
+  }
   py_ck_ctrl_c();
 }
 
+int rgb(int r,int g,int b){
+  if (r<0) r=0; if(r>255) r=255;
+  if (g<0) g=0; if(g>255) g=255;
+  if (b<0) b=0; if(b>255) b=255;
+  return (((r*32)/256)<<11) | (((g*64)/256)<<5) | (b*32/256);
+
+}
 void c_turtle_fillcolor(double r,double g,double b,int entier){
-  context * cascontextptr=(context *)caseval("caseval contextptr");
   if (entier)
-    giac::_polygone_rempli(makesequence(int(r),int(g),int(b)),cascontextptr);
+    turtle_fillcolor=rgb(int(r),int(g),int(b));
   else
-    giac::_polygone_rempli(makesequence(r,g,b),cascontextptr);
+    turtle_fillcolor=rgb(int(r*256),int(g*256),int(b*256));
   py_ck_ctrl_c();
 }
 
 void c_turtle_getposition(double * x,double * y){
-  context * cascontextptr=(context *)caseval("caseval contextptr");
-  gen arg(vecteur(0)); arg.subtype=_SEQ__VECT;
-  giac::gen g=giac::_position(arg,cascontextptr);
-  if (g.type==_VECT && g._VECTptr->size()==2){
-    gen a=g._VECTptr->front(),b=g._VECTptr->back();
-    a=evalf_double(a,1,cascontextptr);
-    b=evalf_double(b,1,cascontextptr);
-    *x=a._DOUBLE_val;
-    *y=b._DOUBLE_val;
-  }
+  *x=turtleptr->x;
+  *y=turtleptr->y;
+}
+
+void c_turtle_show(int visible){
+  (*turtleptr).visible=visible;
+  (*turtleptr).radius = 0;
+  c_update_turtle_state(true);
+}
+
+void c_turtle_towards(double x,double y){
+  double x0=turtleptr->x,y0=turtleptr->y;
+  double t=atan2(x-x0,y-y0);
+  c_turtle_cap(t*180/M_PI);
+}
+
+int c_turtle_getcolor(){
+  return turtleptr->color;
+}
+
+void c_turtle_color(int c){
+  turtleptr->color=c;
+  (*turtleptr).radius = 0;
+  c_update_turtle_state(true);  
+}
+
+void c_turtle_fillcolor1(int c){
+  turtle_fillcolor=c;
 }
 
 // auto-shutdown

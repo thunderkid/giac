@@ -670,12 +670,12 @@ namespace giac {
 	      gen delta=-D*a/E*exp(a*F/E-b,contextptr);
 	      if (is_greater(m1,delta,contextptr))
 		return; // no solution
-	      gen sol=(_LambertW(delta,contextptr)-F/E)/a;
-	      v.push_back((sol-b)/a);
+	      gen sol=_LambertW(delta,contextptr)/a-F/E;
+	      v.push_back(sol);
 	      if (is_positive(delta,contextptr)|| delta==m1)
 		return;
-	      sol=(_LambertW(makesequence(delta,-1),contextptr)-F/E)/a;
-	      v.push_back((sol-b)/a);
+	      sol=_LambertW(makesequence(delta,-1),contextptr)/a-F/E;
+	      v.push_back(sol);
 	      return;
 	    }
 	  }
@@ -1890,12 +1890,12 @@ namespace giac {
 	// tmp=a*tmplv[0]+c*tmplv[1]+d
 	if (tmplv[0]._SYMBptr->sommet==at_sin && tmplv[1]._SYMBptr->sommet==at_cos){
 	  // a*sin(x)+c*cos(x)=C*sin(x+phi) where exp(i*phi)=a+i*c;
-	  gen phi=arg(halftan(a+cst_i*c,contextptr),contextptr);
+	  gen phi=is_zero(d)?atan(halftan(c/a,contextptr),contextptr):arg(halftan(a+cst_i*c,contextptr),contextptr);
 	  tmp=sqrt(a*a+c*c,contextptr)*sin(tmplv[0]._SYMBptr->feuille+phi,contextptr)+d;
 	}
 	if (tmplv[0]._SYMBptr->sommet==at_cos && tmplv[1]._SYMBptr->sommet==at_sin){
 	  // a*cos(x)+c*sin(x)=C*sin(x+phi) where exp(i*phi)=c+i*a;
-	  gen phi=arg(halftan(c+cst_i*a,contextptr),contextptr);
+	  gen phi=is_zero(d)?atan(halftan(a/c,contextptr),contextptr):arg(halftan(c+cst_i*a,contextptr),contextptr);
 	  tmp=sqrt(a*a+c*c,contextptr)*sin(tmplv[0]._SYMBptr->feuille+phi,contextptr)+d;
 	}
       }
@@ -1904,12 +1904,12 @@ namespace giac {
 	  // tmp=a*tmplv[0]+c*tmplv[1]+d
 	  if (tmplv[1]._SYMBptr->sommet==at_sin && tmplv[0]._SYMBptr->sommet==at_cos){
 	    // a*sin(x)+c*cos(x)=C*sin(x+phi) where exp(i*phi)=a+i*c;
-	    gen phi=arg(halftan(a+cst_i*c,contextptr),contextptr);
+	    gen phi=is_zero(d)?atan(halftan(c/a,contextptr),contextptr):arg(halftan(a+cst_i*c,contextptr),contextptr);
 	    tmp=sqrt(a*a+c*c,contextptr)*sin(tmplv[1]._SYMBptr->feuille+phi,contextptr)+d;
 	  }
 	  if (tmplv[1]._SYMBptr->sommet==at_cos && tmplv[0]._SYMBptr->sommet==at_sin){
 	    // a*cos(x)+c*sin(x)=C*sin(x+phi) where exp(i*phi)=c+i*a;
-	    gen phi=arg(halftan(c+cst_i*a,contextptr),contextptr);
+	    gen phi=is_zero(d)?atan(halftan(a/c,contextptr),contextptr):arg(halftan(c+cst_i*a,contextptr),contextptr);
 	    tmp=sqrt(a*a+c*c,contextptr)*sin(tmplv[1]._SYMBptr->feuille+phi,contextptr)+d;
 	  }
 	}
@@ -2847,10 +2847,13 @@ namespace giac {
 	      if (!is_zero(res2))
 		res2=_simplify(_solve(makesequence(symb_equal(res2,0),var2),contextptr),contextptr);
 	      gen res3=derive(eq2,var2,contextptr);
-	      if (!is_zero(res3))
-		res3=_simplify(subst(eq2,var1,v1val,false,contextptr),contextptr);
 	      if (!is_zero(res3)){
-		res3=_simplify(_solve(makesequence(symb_equal(res3,0),var2),contextptr),contextptr);
+		res3 = subst(eq2,var1,v1val,false,contextptr);
+		res3=_simplify(res3,contextptr);
+	      }
+	      if (!is_zero(res3)){
+		res3=_solve(makesequence(symb_equal(res3,0),var2),contextptr);
+		res3=_simplify(res3,contextptr);
 		if (is_zero(res2))
 		  res2=res3;
 		else

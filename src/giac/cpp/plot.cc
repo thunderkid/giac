@@ -128,10 +128,11 @@ extern "C" {
 #endif
 
 #if defined GIAC_HAS_STO_38 || defined NSPIRE || defined NSPIRE_NEWLIB || defined FXCG || defined GIAC_GGB || defined USE_GMP_REPLACEMENTS || defined KHICAS
-inline bool is_graphe(const giac::gen &g,std::string &disp_out,const giac::context *){ return false; }
+inline bool is_graphe(const giac::gen &g){ return false; }
 inline giac::gen _graph_vertices(const giac::gen &g,const giac::context *){ return g;}
 inline giac::gen _is_planar(const giac::gen &g,const giac::context *){ return g;}
 #else
+#include "signalprocessing.h"
 #include "graphtheory.h"
 #endif
 
@@ -1068,8 +1069,23 @@ namespace giac {
       if (s[i]=='.')
 	break;
     }
-    if (i+ndigits+1<l)
-      s[i+ndigits+1]=0;
+    i += ndigits+1;
+    if (i<l){
+      if (s[i-1]=='e' || s[i-2]=='e')
+	return s;
+      int j;
+      for (j=i;j<l;++j){
+	// exponent?
+	if (s[j]=='e' || s[j]=='E'){
+	  // move from j to l -> i
+	  for (;j<l;++j,++i){
+	    s[i]=s[j];
+	  }
+	  break;
+	}
+      }
+      s[i]=0;
+    }
 #else
     ndigits=ndigits<2?2:ndigits;
     ndigits=ndigits>15?15:ndigits;
@@ -1457,6 +1473,7 @@ namespace giac {
 	      break;
 	    bool positif=ck_is_greater(a,0,contextptr);
 	    gen tmp=quotesubst(f,piece,piecev[2*i+1],contextptr);
+	    tmp=ratnormal(tmp,contextptr);
 	    if (ck_is_greater(l,function_xmax,contextptr)){
 	      // borne_inf < borne_sup <= l
 	      if (positif) // test is false, continue
@@ -2431,7 +2448,9 @@ namespace giac {
     if (h.type!=_VECT || h._VECTptr->size()!=2)
       return false;
     gen h1=evalf_double(h._VECTptr->front(),1,contextptr);
+    if (h1==minus_inf) h1=gnuplot_xmin;
     gen h2=evalf_double(h._VECTptr->back(),1,contextptr);
+    if (h2==plus_inf) h2=gnuplot_xmax;
     if (h1.type!=_DOUBLE_  || h2.type!=_DOUBLE_ )
       return false;
     inf=h1._DOUBLE_val;
@@ -7535,8 +7554,7 @@ namespace giac {
 
   gen _sommets(const gen & args,GIAC_CONTEXT){
     if ( args.type==_STRNG && args.subtype==-1) return  args;
-    string s;
-    if (is_graphe(args,s,contextptr))
+    if (is_graphe(args))
       return _graph_vertices(args,contextptr);
     if (args.type==_VECT && args.subtype==_SEQ__VECT && args._VECTptr->size()==2){
       gen g=_sommets(args._VECTptr->front(),contextptr);
@@ -7557,8 +7575,7 @@ namespace giac {
 
   gen _faces(const gen & args,GIAC_CONTEXT){
     if ( args.type==_STRNG && args.subtype==-1) return  args;
-    string s;
-    if (is_graphe(args,s,contextptr)){
+    if (is_graphe(args)){
       identificateur faces;
       gen ret=_is_planar(makesequence(args,faces),contextptr);
       gen retval=is_one(ret)?_eval(faces,contextptr):ret;
@@ -9707,7 +9724,10 @@ namespace giac {
     // delta=ra^2-rb^2+AB^2
     gen delta=rayon_a2-rayon_b2+ab2;
     gen ab4=centre_a+delta/2/ab2*ab;
-    gen d_perp(sqrt(4*ab2*rayon_a2-pow(delta,2),contextptr)/2/ab2);
+    gen D=4*ab2*rayon_a2-pow(delta,2);
+    if (is_strictly_greater(0,D,contextptr))
+      return vecteur(0);
+    gen d_perp(sqrt(D,contextptr)/2/ab2);
     if (a2d){ // circle inter circle = 2 points (or 1)
       gen ab_perp(im(ab,contextptr)-cst_i*re(ab,contextptr));
       return makevecteur(symb_pnt(ratnormal(ab4+d_perp*ab_perp,contextptr),default_color(contextptr),contextptr),symb_pnt(ratnormal(ab4-d_perp*ab_perp,contextptr),default_color(contextptr),contextptr));
@@ -9793,7 +9813,11 @@ namespace giac {
       prod2frac(eq,num,den);
       eq=vecteur2prod(num);
       eq=normal(eq,contextptr);
-      vecteur res=solve(eq,*vf[1]._IDNTptr,0,contextptr);
+      gen solvex=vf[1];
+      gen xval=assumeeval(solvex,contextptr);
+      giac_assume(symb_and(symb_superieur_egal(solvex,tmin),symb_inferieur_egal(solvex,tmax)),contextptr);
+      vecteur res=solve(eq,*solvex._IDNTptr,0,contextptr);
+      restorepurge(xval,solvex,contextptr);
       int s=int(res.size());
       for (int i=0;i<s;++i){
 	res[i]=symb_pnt(subst(vf[0],vf[1],res[i],false,contextptr),contextptr);
@@ -11173,6 +11197,36 @@ namespace giac {
 
   gen _couleur(const gen & a,GIAC_CONTEXT){
     if (is_undef(a)) return a;
+#if defined GIAC_HAS_STO_38 || defined NSPIRE || defined NSPIRE_NEWLIB || defined FXCG || defined GIAC_GGB || defined USE_GMP_REPLACEMENTS || defined KHICAS || defined EMCC || defined EMCC2
+#else    
+    /* display image, addition by L. Marohnić */
+    rgba_image *img;
+    gen x=0,y=0;
+    if (a.type==_VECT && a.subtype==_SEQ__VECT && a._VECTptr->size()>1 &&
+        (img=rgba_image::from_gen(a._VECTptr->front()))!=NULL) {
+      if ((a._VECTptr->size()>2 && (!is_real_number(x=a._VECTptr->at(1),contextptr) || !is_real_number(y=a._VECTptr->at(2),contextptr))))
+        return gensizeerr(gettext("Invalid image position"));
+      if (a._VECTptr->size()==2) {
+        if (a._VECTptr->back().type==_CPLX) {
+          x=re(a._VECTptr->back(),contextptr);
+          y=im(a._VECTptr->back(),contextptr);
+        } else if (is_real_number(a._VECTptr->back(),contextptr))
+          x=a._VECTptr->back();
+        else return gensizeerr(gettext("Invalid image position"));
+      }
+    } else img=rgba_image::from_gen(a);
+    if (img!=NULL) {
+      if (!img->assure_on_disk())
+        return gensizeerr(gettext("Failed to write image to disk"));
+      vecteur drawing;
+      drawing.push_back(symb_equal(change_subtype(_AXES,_INT_PLOT),0));
+      drawing.push_back(symb_equal(change_subtype(_GL_ORTHO,_INT_PLOT),1));
+      drawing.push_back(symbolic(at_rectangle,makesequence(gen(x,y),gen(x+img->width(),y),fraction(img->height(),img->width()),
+                        symb_equal(change_subtype(_GL_TEXTURE,_INT_PLOT),string2gen(img->file_name(),false)))));
+      return drawing;
+    }
+    /* end display image */
+#endif
     if (a.type==_STRNG){
       *logptr(contextptr) << gettext("Use pencolor for the turtle") << '\n';
       return _couleur(gen(*a._STRNGptr,contextptr),contextptr);
@@ -11324,14 +11378,16 @@ namespace giac {
     if (dim3 && vs>3)
       dim3=(v[3]!=at_plan);
     vecteur res1v,resv;
-    if (tmin<0){
+    gen t0f=evalf_double(t0,1,contextptr);
+    double d0=t0f.type==_DOUBLE_?t0f._DOUBLE_val:0;
+    if (tmin<d0){
       gen res1=odesolve(t0,tmin,f,y0,tstep,curve,ymin,ymax,maxstep,contextptr);
       if (is_undef(res1)) return res1;
       res1v=*res1._VECTptr;
       std::reverse(res1v.begin(),res1v.end());
     }
     res1v.push_back(makevecteur(t0,y0));
-    if (tmax>0){
+    if (tmax>d0){
       gen res2=odesolve(t0,tmax,f,y0,tstep,curve,ymin,ymax,maxstep,contextptr);
       if (is_undef(res2)) return res2;
       resv=mergevecteur(res1v,*res2._VECTptr);

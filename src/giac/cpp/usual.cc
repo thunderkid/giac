@@ -4613,6 +4613,18 @@ namespace giac {
 	arg1=v[0].eval(eval_level(contextptr),contextptr);
       else
 	arg1=v[1].eval(eval_level(contextptr),contextptr);
+      // additionnal check for recursive assumptions like assume(a<b); assume(b<a);
+      vecteur iarg1(lidnt(v[1]));
+      for (int i=0;i<iarg1.size();++i){
+	gen cur=iarg1[i];
+	if (cur.type==_IDNT){
+	  gen cur1=cur._IDNTptr->eval(eval_level(contextptr),arg0,contextptr);
+	  if (equalposcomp(lidnt(cur1),arg0)){
+	    *logptr(contextptr) << "Recursive assumption " << a << " ignored\n";
+	    return 0;
+	  }
+	}
+      }
       gen borne_inf(gnuplot_xmin),borne_sup(gnuplot_xmax),pas;
       if ( s==at_equal || s== at_equal2 || s==at_same || s==at_sto ){     
 	// ex: assume(a=[1.7,1.1,2.3])
@@ -8015,6 +8027,20 @@ namespace giac {
 	}
 	return factnum/factden*sqrt(cst_pi,contextptr);
       }
+      // additions by L.Marohnić: reduction for x=p/q in (-1,1) to Gamma(min(abs(p),abs(q-p))/q)
+      if (x._FRACptr->num.type==_INT_ && !is_zero(x._FRACptr->num) &&
+          is_strictly_greater(x._FRACptr->den,_abs(x._FRACptr->num,contextptr),contextptr)) {
+        int p=x._FRACptr->num.val,q=x._FRACptr->den.val;
+        if (!is_positive(x._FRACptr->num,contextptr))
+          return ratnormal(_inv(x,contextptr)*Gamma(1+x,contextptr),contextptr);
+        if (is_strictly_greater(2*x._FRACptr->num,x._FRACptr->den,contextptr))
+          return ratnormal(cst_pi/(Gamma(1-x,contextptr)*sin(cst_pi*x,contextptr)),contextptr);
+        return symbolic(at_Gamma,x);
+      }
+      // handle negative fractions
+      if (x._FRACptr->num.type==_INT_ && !is_positive(x,contextptr))
+        return ratnormal(-cst_pi/(Gamma(-x,contextptr)*x*sin(cst_pi*x,contextptr)),contextptr);
+      // end additions by L.Marohnić
       // normalize Gamma(n/d) to fractional part ?
       gen xd=evalf_double(x,1,contextptr),X=x;
       if (xd.type==_DOUBLE_){
@@ -8138,6 +8164,11 @@ namespace giac {
     return symbolic(at_Gamma,x);
 #endif
   }
+
+  // Gamma, to Mathematica Gamma (from Albert Chan
+  // https://www.hpmuseum.org/forum/thread-19088-post-166001.html#pid166001)
+  // CAS> gamma(a,x) := when(x<0, [Gamma(a),Gamma(a,x)] * [1+(-1)^a,-(-1)^a], Gamma(a,x))
+  //CAS> gamma(4/5,-6.)      → 238.757077078-172.62130796*i
   gen _Gamma(const gen & args,GIAC_CONTEXT) {
     if ( args.type==_STRNG && args.subtype==-1) return  args;
     return Gamma(args,contextptr);
@@ -11223,6 +11254,63 @@ namespace giac {
     of << deg2rad_e << " " << '\n';
 #endif
   }
+
+#if defined GIAC_HAS_STO_38 || defined NSPIRE || defined NSPIRE_NEWLIB || defined FXCG || defined GIAC_GGB || defined USE_GMP_REPLACEMENTS || defined KHICAS
+#else
+  // additions by L. Marohnić:
+  string to_unix_path(const string &path) {
+    string ret;
+    ret.reserve(path.size());
+    string::const_iterator it=path.begin(),itend=path.end();
+    for (;it!=itend;++it) {
+      switch (*it) {
+      case '\\':
+        ret.push_back('/');
+        break;
+      default:
+        ret.push_back(*it);
+        break;
+      }
+    }
+    return ret;
+  }
+  /* Create a temporary file name (using the fallback filename if tmpnam fails).
+   * Optionally, extension EXT may be specified, without the leading dot.*/
+  string temp_file_name(const char *fallback_name,const char *ext) {
+    char buf[L_tmpnam];
+    bool has_temp_file=(tmpnam(buf)!=NULL);
+    string tmpname(has_temp_file?buf:fallback_name);
+#ifdef _WIN32
+    string tmpdir=getenv("TEMP")?getenv("TEMP"):"c:\\Users\\Public\\";
+    tmpname=tmpdir+tmpname;
+    if (tmpname[tmpname.size()-1]=='.')
+        tmpname.erase(tmpname.begin()+tmpname.size()-1);
+#endif
+    if (ext!=NULL)
+      tmpname+="."+string(ext);
+    return tmpname;
+  }
+  /* Return true iff the file FNAME exists. */
+  bool ckfileexists(const char *fname) {
+    if (FILE *f=fopen(fname,"r")) {
+      fclose(f);
+      return true;
+    }
+    return false;
+  }
+  temp_file::temp_file(const char *fallback_name,const char *ext) {
+    _fname=temp_file_name(fallback_name,ext);
+    handle=fopen(_fname.c_str(),"wb+");
+  }
+  temp_file::~temp_file() {
+    if (ckfileexists(_fname.c_str())) {
+      if (handle!=NULL)
+        fclose(handle);
+      if (remove(_fname.c_str())!=0 && debug_infolevel)
+        cerr << gettext("Failed to remove temporary file") << " '" << _fname << "'\n";
+    }
+  }
+#endif
 
 #ifndef NO_NAMESPACE_GIAC
 } // namespace giac

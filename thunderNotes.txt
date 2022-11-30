@@ -22,6 +22,7 @@ To make available inside windows npm builds,
         cp giac.node.wasm.js ../../../nodePackage/out/compiledWasm/
 
 Then can test using 'giac' command from windows powershell.
+    Can nominally get version from inside giac with    version() but this seems to be hard-coded in to build.gradle and doesn't seem to change.
 
 
 // To debug minigiac, a terminal-based c program:
@@ -34,7 +35,6 @@ On bottom bar of vscode choose
 
 terminal shows giac. breakpoints & debugging work.
 gcc output is in build/ folder. Executable is minigiac.
-
 
 
 

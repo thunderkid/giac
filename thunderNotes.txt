@@ -7,7 +7,7 @@ Troubleshooting: if you get error
             /usr/bin/env: 'sh\r': No such file or directory
     it means gradlew has windows line endings. Install dos2unix and then use dos2unix gradlew.
         
-Output is in /workspaces/giac/build/binaries/giacggb.wasm/
+Output is in /workspaces/ThunderGiac/build/binaries/giacggb.wasm/
 From here, run 
     node nodetoy.js
 
@@ -23,7 +23,7 @@ To make available inside windows npm builds,
 
 Then can test using 'giac' command from windows powershell.
     Can nominally get version from inside giac with    version() but this seems to be hard-coded in to build.gradle and doesn't seem to change.
-
+    I've edited to a Thunder version starting at Thunder.1.0.0 until upstream actually changes it.
 
 // To debug minigiac, a terminal-based c program:
 On bottom bar of vscode choose

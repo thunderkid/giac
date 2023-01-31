@@ -8,3 +8,4 @@ giac-gwt/bin
 /nodePackage/out/compiledWasm/giac.node.wasm.js
 /nodePackage/out/compiledWasm/*
 .gems
+*.log

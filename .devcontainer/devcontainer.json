@@ -36,7 +36,8 @@
 	// }
     //,
     "mounts": [
-       "source=c:/Users/Adrian/Documents/ThunderGiac,target=/usr/app,type=bind,consistency=cached"
+       "source=/home/adrian/Documents/thunderGiac,target=/usr/app,type=bind,consistency=cached"
+       //"source=c:/Users/Adrian/Documents/ThunderGiac,target=/usr/app,type=bind,consistency=cached"
        // following needed for subproject links to work 
        //"source=c:/Users/Adrian/Documents/ThunderCode/ChalkWeb/qcpackages,target=/mnt/host/c/Users/Adrian/Documents/ThunderCode/ChalkWeb/qcpackages,type=bind,consistency=cached"
     ]

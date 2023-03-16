@@ -1,12 +1,12 @@
 const tg = require('./out/index');
 //import { initialize, runEval } from './out/index';
-const { initialize, runEval } = tg;
+const { initialize, runEval, getTimestamp } = tg;
 
-const starttime = performance.now();
+const starttime = getTimestamp();
 console.log('a');
 initialize().then(() => {
     console.log('done');
-    const endtime = performance.now();
+    const endtime = getTimestamp();
     console.log(endtime-starttime);
 })
 initialize().then(() => {

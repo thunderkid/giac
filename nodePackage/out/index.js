@@ -9,13 +9,13 @@ let caseval = null;
 // even if initialize is called multiple times. 
 let initializePromise = null;
 function initialize() {
-    const startTime = performance.now();
+    const startTime = getTimestamp();
     if (!initializePromise) {
         initializePromise = factory().then((theInstance) => {
             if (caseval)
                 throw Error('Two giac initalizations were somehow run. The initializePromise logic must have broken.')
             caseval = theInstance.cwrap('caseval', 'string', ['string']);
-            console.log(`Giac WASM initialized in ${Math.round(performance.now()-startTime)}ms`);
+            console.log(`Giac WASM initialized in ${Math.round(getTimestamp()-startTime)}ms`);
         });
     }
    return initializePromise;
@@ -31,6 +31,18 @@ function runEval(str) {
 }
 
 
-module.exports = { initialize, runEval }
+// performance.now() is not available in node.js, so we use process.hrtime() instead. 
+// Think in other cases it's just used in b
+function getTimestamp() {
+    if (typeof performance !== 'undefined' && performance.now) {
+        return performance.now();
+    } else {
+        const hrTime = process.hrtime();
+        return (hrTime[0] * 1000) + (hrTime[1] / 1000000);
+    }
+}
+
+
+module.exports = { initialize, runEval, getTimestamp }
 
 //initialize();

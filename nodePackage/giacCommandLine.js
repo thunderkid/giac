@@ -1,4 +1,6 @@
 var tg = require('./out/index');
+const { initialize, runEval, getTimestamp } = tg;
+
 var readline = require('readline');
 var rl = readline.createInterface({
   input: process.stdin,
@@ -8,14 +10,14 @@ var rl = readline.createInterface({
 
 
 function callGiac(text) {
-    const res = tg.runEval(text);
+    const res = runEval(text);
     if (res.startsWith('GIAC_ERROR'))
         throw Error(res);
     return res;
 }
 
 let initialized = false;
-tg.initialize().then(() => {
+initialize().then(() => {
     initialized = true;
 }); 
 
@@ -37,10 +39,10 @@ rl.on('line', function(line){
         rl.close();
     else {
         console.log(n + '>> ' + line);
-        const t0 = performance.now();
+        const t0 = getTimestamp();
         try {
             const ans = callGiac(line);// 'you said ' + line;
-            const t1 = performance.now();
+            const t1 = getTimestamp();
             const took = t1 - t0;
             const tookReport = took < 20 ? Math.round((took)*10)/10 : Math.round(took)
             console.log(n + '<< ' + ans + '\t\t\t\ttook '+ tookReport + 'ms');
